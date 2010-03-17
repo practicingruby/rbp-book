@@ -3,6 +3,18 @@ Welcome to the open source home of the "Ruby Best Practices" book.
 Here you'll find the original manuscript along with the production files that
 were used to generate the print version of the book.
 
+If instead you were looking for a free PDF download of the book, you
+can find it here:
+
+http://sandal.github.com/rbp-book/pdfs/rbp_1-0.pdf
+
+Or, if you wanted to kill trees and give me some money:
+
+http://oreilly.com/catalog/9780596523015/
+http://www.amazon.com/gp/product/0596523009/
+
+But assuming you are here for the source, check the brief description below.
+
 == Files
 
 manuscript/unmerged contains asciidoc sources that have not been updated to
