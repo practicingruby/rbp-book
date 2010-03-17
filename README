@@ -1,0 +1,31 @@
+Welcome to the open source home of the "Ruby Best Practices" book.
+
+Here you'll find the original manuscript along with the production files that
+were used to generate the print version of the book.
+
+== Files
+
+manuscript/unmerged contains asciidoc sources that have not been updated to
+reflect copyediting.  When I get around to it, manuscript/updated will contain
+the updated files.   Once a file is updated, I will accept patches against it
+for fixes and modifications.
+
+oreilly_final/ contains the production files that were used to generate this
+book.  Right now it's a bit limited, just one giant docbook file and some figs.
+We may be able to break it down by chapter later, but we may not necessarily
+need it.
+
+== Contributing / Using Content
+
+Right now, I need to go through the painstaking process of merging copyeditor
+changes into my asciidoc manuscript, and then setup the build toolchain again in
+a way that's easy enough for contributors to access.
+
+But for those who wish to fork and experiment on their own, all content here is
+hereby released under the Creative Commons Attribution-Noncommercial-Share Alike
+3.0 license.  If you have any questions about legal usage, contact me, and I'll
+talk with O'Reilly.
+
+  gregory.t.brown at gmail.com
+
+

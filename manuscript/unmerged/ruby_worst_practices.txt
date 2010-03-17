@@ -1,0 +1,973 @@
+== Appendix C: Ruby Worst Practices ==
+
+If you've read through most of this book, you'll notice that it didn't have much
+of a "Do this, not that" theme.  Ruby as a language doesn't fit well into that
+framework, since there are always exceptions to any rule you can come up with.
+
+However, there are certainly a few things you really shouldn't do, unless you
+know exactly why you are doing them.   This appendix is meant to cover a handful
+of those scenarios and show you some better alternatives.  I've done my best to
+stick to issues I've been bit by myself, in the hopes that I can offer some
+practical advice for problems you might actually have run into.
+
+A bad practice in programming shouldn't be simply defined by some ill-defined
+aesthetic imposed upon folks by the "experts".  Instead, we can often track
+anti-patterns in code down to either flaws in the high level design of an object
+oriented system, or failed attempts at cleverness in the underlying
+feature implementations.  These bits of unsavory code produced by bad habits or
+the misunderstanding of certain Ruby peculiarties can be a drag on your whole
+project, creating substantial technical debt as they accumulate.
+
+We'll start with the high level design issues and then move on to the common
+sticking points when implementing tricky Ruby features.  Making an improvement
+to even a couple of these problem areas will make a major difference, so even if
+you already know about most of these pitfalls, you might find one or two tips that
+will go a long way.
+
+=== Not-so Intelligent Design ===
+
+Well designed object oriented systems can be a dream to work with.  When every
+component seems to fit together nicely, with clear, simple integration code
+between the major subsystems, you get the feeling that the architecture is
+working for you, and not against you.
+
+If you're not careful, all of this can come crashing down.  Let's look at a few
+things to watch out for, and how to get around them.
+
+==== Class Variables Considered Harmful ====
+
+Ruby's class variables are one of the easiest ways to break encapsulation and
+create headaches for yourself when designing class heirarchies.  To demonstrate the
+problem, I'll show an example where class variables were tempting but ultimately
+the wrong solution.
+
+In my abstract formatting library +Fatty+, I provide a formatter base class
+which users must inherit from from to make use of the system.  This provides
+helpers which build up anonymous classes for certain formats.   To get a sense
+of what this looks like, take a look at this example:
+
+..............................................................................
+
+class Hello < FattyRBP::Formatter 
+  format :text do
+    def render
+      "Hello World"
+    end
+  end
+
+  format :html do
+    def render
+      "<b>Hello World</b>"
+    end
+  end
+end
+
+puts Hello.render(:text) #=> "Hello World"
+puts Hello.render(:html) #=> "<b>Hello World</b>"
+
+..................................................................................
+
+Though we've omitted most of the actual functionality +Fatty+ provides, a simple
+implementation of this system using class variables might look like this:
+
+..................................................................................
+
+module FattyRBP
+  class Formatter
+     @@formats = {}
+
+     def self.format(name, options={}, &block)
+       @@formats[name] = Class.new(FattyRBP::Format, &block)
+     end
+
+     def self.render(format, options={})
+       @@formats[format].new(options).render
+     end
+   end
+
+  class Format
+    def initialize(options)
+      # not important
+    end
+
+    def render
+      raise NotImplementedError
+    end
+  end 
+
+end
+
+..................................................................................
+
+This code will make the example we showed earlier work as advertised.  Now let's
+see what happens when we add another subclass into the mix.
+
+..................................................................................
+
+class Goodbye < FattyRBP::Formatter
+  format :text do
+    def render
+      "Goodbye Cruel World!"
+    end
+  end
+end
+
+puts Goodbye.render(:text) #=> "Goodbye Cruel World!"
+
+..................................................................................
+
+At a first glance, things seem to be working.  But if we dig deeper, we see two
+problems:
+
+..................................................................................
+
+# Should not have changed
+puts Hello.render(:text) #=> "Goodbye Cruel World!" 
+
+# Shouldn't exist
+puts Goodbye.render(:html) #=> "<b>Hello World</b>"
+
+..................................................................................
+
+And here, we see the problem with class variables.  If we think of them as
+class-level state, we'd be wrong.  They are actually class-heirarchy variables
+that can have their state modified by any subclass, whether direct or many
+levels down the ancestry chain.  This means they're fairly close to
+global state in nature, which is usually a bad thing.  So unless you were
+actually counting on this behavior, an easy fix is to just dump class variables
+and use class instance variables instead.
+
+..................................................................................
+
+module FattyRBP
+  class Formatter
+
+    def self.formats
+      @formats ||= {}
+    end
+
+     def self.format(name, options={}, &block)
+       formats[name] = Class.new(FattyRBP::Format, &block)
+     end
+
+     def self.render(format, options={})
+       formats[format].new(options).render
+     end
+   end
+
+  class Format
+    def initialize(options)
+      # not important
+    end
+  end
+end
+
+..................................................................................
+
+Although this prevents direct access to the variable from instances, it is easy
+to define accessors at the class level.  The benefit is that each subclass
+carries their own instance variable, just like ordinary objects do.  With this
+new code, everything works as expected:
+
+..................................................................................
+
+puts Hello.render(:text)   #=> "Hello World"
+puts Hello.render(:html)   #=> "<b>Hello World</b>"
+puts Goodbye.render(:text) #=> "Goodbye Cruel World"
+
+puts Hello.render(:text)   #=> "Hello World"
+puts Goodbye.render(:html) #=> raises an error
+
+..................................................................................
+
+So the moral of the story here is that class-level state should be stored in
+class instance variables if you want to allow subclassing.  Reserve class
+variables for data that needs to be shared across an entire class heirarchy.
+
+==== Hardcoding Yourself into a Corner ====
+
+One good practice is to provide alternative constructors for your classes when
+there are common configurations that might be generally useful.   One such
+example is in +Prawn+, when a user wants to build up a document via a simplified
+interface and then immediately render it to file:
+
+..................................................................................
+
+Prawn::Document.generate("hello.pdf") do
+  text "Hello Prawn!"
+end
+
+..................................................................................
+
+Implementing this method was very simple, as it simply wraps the constructor and
+calls an extra method to render the file afterwards:
+
+..................................................................................
+
+module Prawn
+  class Document
+
+    def self.generate(filename,options={},&block)
+      pdf = Prawn::Document.new(options,&block)          
+      pdf.render_file(filename)
+    end
+
+  end
+end
+
+..................................................................................
+
+However, some months down the line, a bug report made me realize that I made
+somewhat stupid mistake here.  I accidentally prevented users from being able to 
+write code like this:
+
+..................................................................................
+
+class MyDocument < Prawn::Document
+  def say_hello
+    text "Hello MyDocument"
+  end
+end
+
+MyDocument.generate("hello.pdf") do
+  say_hello
+end
+
+..................................................................................
+
+The problem of course, is that +Prawn::Document.generate+ hard codes the
+constructor call, which prevents subclasses from ever being instantiated via
++generate+.   The fix is so easy, it is somewhat embarassing to share:
+
+..................................................................................
+
+module Prawn
+  class Document
+
+    def self.generate(filename,options={},&block)
+      pdf = new(options,&block)          
+      pdf.render_file(filename)
+    end
+
+  end
+end
+
+..................................................................................
+
+By removing the explicit receiver, we now construct an object based on whatever
++self+ is, rather than only building up +Prawn::Document+ objects.  This affords
+us additional flexibility at virtually no cost.  In fact, because hardcoding the
+name of the current class in your method definitions is almost always an
+accident, this applies across the board as a good habit to get into.
+
+Although much less severe, the same thing goes for class method definitions as
+well.  Throughout this book, you will see class methods defined using
++def self.my_method+ rather than +def MyClass.my_method+.  The reason for this
+is much more about maintainability than it is about style.  To illustrate this,
+let's do a simple comparison.  We start off with two boring class definitions
+for the classes +A+ and +B+
+
+..................................................................................
+
+  class A
+    def self.foo
+      # ..
+    end
+
+    def self.bar
+      # ..
+    end
+  end
+
+  class B
+    def B.foo
+      # ...
+    end
+
+    def B.bar
+      # ...
+    end
+  end
+
+..................................................................................
+
+These two are functionally equivalent, each defining the class methods +foo+ and
++bar+ on their respective classes.  But now, let's refactor our code a bit, 
+renaming +A+ to +C+ and +B+ to +D+. Observe the work involved in doing each:
+
+..................................................................................
+
+  class C 
+    def self.foo
+      # ..
+    end
+
+    def self.bar
+      # ..
+    end
+  end
+
+  class D 
+    def D.foo
+      # ...
+    end
+
+    def D.bar
+      # ...
+    end
+  end
+
+
+..................................................................................
+
+To rename +A+ to +C+, we simply change the name of our class, and we don't need
+to touch the method definitions.  But when we change +B+ to +D+, each and every
+method needs to be reworked.  While this might be okay for an object with one or
+two methods at the class level, you can imagine how tedious this could be when
+that number gets larger. 
+
+So we've now found two points against hardcoding class names, and could probably 
+keep growing the list if we wanted.  But for now, let's move on to some higher
+level design issues.
+
+==== When Inheritence Becomes Restrictive ====
+
+Inheritence is very nice when your classes have a clear hierarchical
+structure between them.  However, it can get in the way when used
+inappropriately.  Problems begin to crop up when we try to model cross-cutting
+concerns using ordinary inheritance.   For examples of this, it's easy to look
+directly into core Ruby.
+
+Imagine if +Comparable+ were a class instead of a module.  Then, you would be
+writing code like this:
+
+..................................................................................
+
+class Person < Comparable
+
+  def initialize(first_name, last_name)
+    @first_name = first_name
+    @last_name  = last_name
+  end
+
+  attr_reader :first_name, :last_name
+
+  def <=>(other_person)
+    [last_name, first_name] <=> [other_person.last_name, other_person.first_name]
+  end
+
+end
+
+..................................................................................
+
+However, after seeing this, it becomes clear that it'd be nice to use a +Struct+
+here.   If we ignore the features provided by +Comparable+ here for a moment,
+the benefits of a struct to represent this simple data structure becomes
+obvious.
+
+..................................................................................
+
+class Person < Struct.new(:first_name, :last_name)
+  def full_name
+    "#{first_name} #{last_name}"
+  end
+end
+
+..................................................................................
+
+Because Ruby supports single inheritance only, this example clearly
+demonstrates the problems we run into when relying too heavily on hierarchical
+structure.  A +Struct+ is certainly not always +Comparable+.   And it is just
+plain silly to think of all +Comparable+ objects being +Struct+ objects.  The
+key distinction here is that a +Struct+ defines what an object is made up of,
+whereas +Comparable+ defines a set of features associated with certain objects.
+For this reason, the real Ruby code to accomplish this modeling makes a whole
+lot of sense:
+
+..................................................................................
+
+class Person < Struct.new(:first_name, :last_name)
+
+  include Comparable
+
+  def <=>(other_person)
+    [last_name, first_name] <=> [other_person.last_name, other_person.first_name]
+  end
+
+  def full_name
+     "#{first_name} #{last_name}"
+  end
+
+end
+
+..................................................................................
+
+Keep in mind that while we are constained to exactly one superclass, we can 
+include as many modules as we'd like.  For this reason, modules are often used
+to implement features that are completely orthogonal to the underlying class
+definition they are mixed into.   Taking an example from the Ruby API
+documentation, we see +Forwardable+ being used to very quickly implement a
+simple +Queue+ structure by doing little more than delegating to an underlying
++Array+:
+
+..................................................................................
+
+require "forwardable"
+
+class Queue
+  extend Forwardable
+
+  def initialize
+    @q = [ ]    
+  end
+
+  def_delegator :@q, :push, :enq
+  def_delegator :@q, :shift, :deq
+
+  def_delegators :@q, :clear, :first, :push, :shift, :size
+end
+
+..................................................................................
+
+Although +Forwardable+ would make no sense anywhere in a class hierarchy, it
+accomplishes its task beautifully here.   If we were constrained to a purely
+inheritance based model, such cleverness would not be so easy to pull off.
+
+The key thing to remember here is not that you should avoid inheritance at all
+cost, by any means.  Instead, you should simply remember not to go out of your
+way to construct an artificial hierarchical structure to represent cross-cutting
+or orthogonal concerns.  It's important to remember that Ruby's core is not
+special or magical in its abundant use of mix ins, but instead, representative
+of a very pragmatic and powerful object model.  You can and should apply this
+technique within your own designs, whenever it makes sense to do so.
+
+=== The Downside of Cleverness ===
+
+Ruby lets you do all sorts of clever, fancy tricks.  This cleverness is a big
+part of what makes Ruby so elegant, but it also can be downright dangerous in
+the wrong hands. To illustrate this, we'll look at the kind of trouble you can
+get in if you aren't careful.
+
+==== The evils of +eval()+ ====
+
+Throughout this book, we've dynamically evaluated code blocks all over the
+place.  However, what you have not seen much of is the use of +eval()+, 
++class_eval()+, or even +instance_eval()+ with a string.  Some might wonder why 
+this is, because `eval()` can be so useful!  For example, imagine that you are exposing 
+a way for users to filter through some data.  You would like to be able to support an
+interface like this:
+
+..................................................................................
+
+user1 = User.new("Gregory Brown", balance: 2500)
+user2 = User.new("Arthur Brown", balance: 3300)
+user3 = User.new("Steven Brown", balance: 3200)
+
+f = Filter.new([user1, user2, user3])
+f.search("balance > 3000") #=> [user2, user3]
+
+..................................................................................
+
+Armed with +instance_eval+, this task is so easy that you barely bat an eye as you
+type out the following code:
+
+................................................................................
+
+class User
+  def initialize(name, options)
+    @name    = name
+    @balance = options[:balance]
+  end
+
+  attr_reader :name, :balance
+end
+
+class Filter
+  def initialize(enum)
+    @collection = enum
+  end
+
+  def search(query)
+    @collection.select { |e| e.instance_eval(query) }
+  end
+end
+
+................................................................................
+
+Running the earlier example, you see this code works great, exactly as expected.
+But unfortunately, trouble strikes when you see queries like this:
+
+................................................................................
+
+>> f.search("@balance = 0")
+=> [#<User:0x40caa4 @name="Gregory Brown", @balance=0>, 
+    #<User:0x409138 @name="Arthur Brown", @balance=0>, 
+    #<User:0x402874 @name="Steven Brown", @balance=0>]
+
+................................................................................
+
+Or perhaps even scarier:
+
+................................................................................
+
+>> f.search("system('touch hacked')")
+=> [#<User:0x40caa4 @name="Gregory Brown", ...]
+>> File.exist?('hacked')
+=> true
+
+................................................................................
+
+Since the ability for user generated strings to execute arbitrary system
+commands or damage the internals of an object aren't exactly appealing, you code
+up a regex filter to protect against this:
+
+................................................................................
+
+def search(query)
+  raise "Invalid query" unless query =~ /^(\w+) ([><!]=?|==) (\d+)$/
+  @collection.select { |e| e.instance_eval(query) }
+end
+
+................................................................................
+
+This protects against the two issues we saw before, which is great:
+
+................................................................................
+
+>> f.search("system('touch hacked')")
+RuntimeError: Invalid query
+	from (irb):33:in `search'
+	from (irb):38
+	from /Users/sandal/lib/ruby19_1/bin/irb:12:in `<main>'
+
+>> f.search("@balance = 0")
+RuntimeError: Invalid query
+	from (irb):33:in `search'
+	from (irb):39
+	from /Users/sandal/lib/ruby19_1/bin/irb:12:in `<main>'
+
+................................................................................
+
+But if you weren't paying very close attention, you would have missed that we
+got our anchors wrong.  That means there's still a hole to be exploited here:
+
+................................................................................
+
+>> f.search("balance == 0\nsystem('touch hacked_again')")
+=> [#<User:0x40caa4 @name="Gregory Brown", @balance=0  ...]
+>> File.exist?('hacked_again')
+=> true
+
+................................................................................
+
+Since our regex checked the first line and not the whole string, we were able to
+sneak by the validation.   Arguably, if you're very careful, you could come up
+with the right pattern and be reasonably safe.  But since you are already
+validating the syntax, why play with fire?  We can re-write this code to
+accomplish the same goals with none of the associated risks:
+
+................................................................................
+
+def search(query)
+  data = query.match(/^(?<attr>\w+) (?<op>[><!]=?|==) (?<val>\d+)$/)
+  @collection.select do |e| 
+    attr = e.public_send(data[:attr])
+    attr.public_send(data[:op], Integer(data[:val])) 
+  end
+end
+
+................................................................................
+
+Here, we don't expose any of the objects internals, preserving encapsulation.
+Because we parse out the individual components of the statement and use
++public_send+ to pass the messages on to our objects, we have completely
+eliminated the possibility of arbitrary code execution.  All in all, this code
+is much more secure and easier to debug.  As it turns out, this code will
+actually perform considerably better as well.
+
+Every time you use +eval(string)+, Ruby needs to fire up its parser and tree
+walker to execute the code you've embedded in your string.  This means that in
+cases in which you just need to process a few values and then do something with
+them, using a targeted regular expression is often a much better option, as it 
+greatly reduces the amount of work the interpreter needs to do.  
+
+For virtually every need you might turn to a raw string +eval()+ for, you can
+work around it using the tools Ruby provides.  These include all sorts of
+methods for getting at whatever you need, including +instance_variable_get+, 
++instance_variable_set+, +const_get+, +const_set+, +public_send+, +send+, 
++define_method+, +method()+,and even +Class.new+ / +Module.new+.  These tools
+allow you to dynamically manipulate Ruby code without evaluating strings directly. 
+For more details, you'll definitely want to read the "Mastering the Dynamic Toolkit" 
+chapter.
+
+==== Blind +rescue+ missions ====
+ 
+Ruby provides a lot of different ways to handle exceptions.  They run the gamut
+all the way from capturing the full stack trace to completely ignoring raised
+errors.  This flexibility means that exceptions aren't necessarily treated with
+the same gravity in Ruby as in other languages, since they are very simple to
+rescue once they are raised.   In certain cases, folks have even used +rescue+
+as stand in replacement for conditional statements.  The classic example
+follows: 
+
+................................................................................
+
+  name = @user.first_name.capitalize rescue "Anonymous"
+
+................................................................................
+
+Usually, this is done with the intention of capturing the +NoMethodError+ raised
+by something like +first_name+ being nil here.  It accomplishes this task
+well, and looks slightly nicer than the alternative:
+
+................................................................................
+
+  name = @user.first_name ? @user.first_name.capitalize : "Anonymous"
+
+................................................................................
+
+However, the downside of using this trick is that you will most likely end up
+seeing this code again, at the long end of a painful debugging session.  For
+demonstration purposes, let's assume our +User+ is implemented like this:
+
+................................................................................
+require "pstore"
+
+class User
+
+  def self.data
+    @data ||= PStore.new("users.store")
+  end
+
+  def self.add(id, user_data)
+    data.transaction do
+      data[id] = user_data
+    end
+  end
+
+  def self.find(id)
+    data.transaction do
+      data[id] or raise "User not found"
+    end
+  end
+ 
+  def initialize(id)
+    @user_id = id
+  end
+
+  def attributes
+    self.class.find(@user_id)
+  end
+
+  def first_name
+    attributes[:first_name]
+  end
+
+end
+
+................................................................................
+
+What we have here is basically a +PStore+ backed user database.  It's not terribly
+important to understand every last detail, but the code should be fairly easy to
+understand if you play around with it a bit.
+
+Firing up irb we can see that the +rescue+ trick works fine for the case where
++User#first_name+ returns +nil+.  
+
+................................................................................
+
+>> require "user"
+=> true
+
+>> User.add('sandal', email: 'gregory@majesticseacreature.com')
+
+=> {:email=>"gregory@majesticseacreature.com"}
+>> @user = User.new('sandal')
+=> #<User:0x48c448 @user_id="sandal">
+>> name = @user.first_name.capitalize rescue "Anonymous"
+=> "Anonymous"
+=> #<User:0x49ab74 @user_id="sandal">
+>> @user.first_name
+=> nil
+>> @user.attributes
+=> {:email=>"gregory@majesticseacreature.com"}
+
+................................................................................
+
+Ordinary execution also works fine:
+
+................................................................................
+
+>> User.add('jia', first_name: "Jia", email: "jia@majesticseacreature.com")
+
+=> {:first_name=>"Jia", :email=>"jia@majesticseacreature.com"}
+>> @user = User.new('jia')
+=> #<User:0x492154 @user_id="jia">
+>> name = @user.first_name.capitalize rescue "Anonymous"
+=> "Jia"
+>> @user.attributes
+=> {:first_name=>"Jia", :email=>"jia@majesticseacreature.com"}
+>> @user.first_name
+=> "Jia"
+>> @user = User.new('sandal')
+
+................................................................................
+
+It seems like everything is in order, however, you don't need to look far.
+Notice that this line will succeed even if +@user+ is undefined
+
+................................................................................
+
+>> @user = nil                                                                  
+=> nil
+>> name = @user.first_name.capitalize rescue "Anonymous"
+=> "Anonymous"
+
+................................................................................
+
+This means you can't count on catching an error when a typo or a renamed
+variable creeps into your code.   This weakness of course propagates down the
+chain as well:
+
+................................................................................
+
+>> name = @user.a_fake_method.capitalize rescue "Anonymous"
+=> "Anonymous"
+>> name = @user.a_fake_method.cannot_fail rescue "Anonymous"
+=> "Anonymous"
+
+................................................................................
+
+Of course, issues with a one liner like this should be easy enough to catch even
+without an exception.  This is most likely the reason why this pattern has
+become so common.   However, this is usually an oversight, because the problem
+exists deeper down the bunny hole as well.  Let's introduce a typo into our user
+implementation:
+
+................................................................................
+
+class User
+
+  def first_name
+    attribute[:first_name]
+  end
+
+end
+
+................................................................................
+
+Now, we go back and look at one of our previously working examples:
+
+................................................................................
+
+>> @user = User.new('jia')
+=> #<User:0x4b8548 @user_id="jia">
+>> name = @user.first_name.capitalize rescue "Anonymous"
+=> "Anonymous"
+>> @user.first_name
+NameError: undefined local variable or method `attribute' for #<User:0x4b8548 @user_id="jia">
+	from (irb):23:in `first_name'
+	from (irb):32
+	from /Users/sandal/lib/ruby19_1/bin/irb:12:in `<main>'
+
+................................................................................
+
+Hopefully you're beginning to see the picture.   Although good testing and
+extensive quality assurance can catch these bugs, using this conditional
+modifier +rescue+ hack is like putting blinders on your code.  Unfortunately,
+this can also go for code of the form:
+
+................................................................................
+
+   def do_something_dangerous
+      might_raise_an_error
+   rescue
+      "default value"
+   end
+
+................................................................................
+
+Pretty much any rescue that does not capture a specific error may be a source of
+silent failure in your applications.   The only real case where an unqualified
++rescue+ might make sense is when it is combined with a unqualified +raise+,
+which causes the same error to resurface after executing some code:
+
+................................................................................
+
+   begin
+     # do some stuff
+   rescue => e
+     MyLogger.error "Error doing stuff: #{e.message}"
+     raise
+   end 
+
+................................................................................
+
+In other situations, be sure to either know the risks involved, or avoid
+this technique entirely.  You'll thank yourself later.
+
+==== Doing +method_missing+ wrong ====
+
+One thing you really don't want to do is mess up a +method_missing+ hook.
+Because the purpose of +method_missing+ is to handle unknown messages, it is a
+key feature for helping finding bugs in your code.
+
+In the "Mastering the Dynamic Toolkit" chapter of this book, we covered some
+examples of how to use +method_missing+ properly.  Here's an example of how to
+do it wrong:
+
+....................................................................................
+
+class Prawn::Document
+
+  # Provides the following shortcuts:
+  #
+  #    stroke_some_method(*args) #=> some_method(*args); stroke
+  #    fill_some_method(*args) #=> some_method(*args); fill
+  #    fill_and_stroke_some_method(*args) #=> some_method(*args); fill_and_stroke
+  #
+  def method_missing(id,*args,&block)
+    case(id.to_s) 
+    when /^fill_and_stroke_(.*)/
+      send($1,*args,&block); fill_and_stroke
+    when /^stroke_(.*)/
+      send($1,*args,&block); stroke 
+    when /^fill_(.*)/
+      send($1,*args,&block); fill
+    end
+  end 
+
+end
+
+....................................................................................
+
+Although this may look very similar to an earlier example in this book, it has a
+critical flaw.  Can you see it?   If not, this irb session should help:
+
+....................................................................................
+
+>> pdf.fill_and_stroke_cirlce([100,100], :radius => 25)
+=> "0.000 0.000 0.000 rg\n0.000 0.000 0.000 RG\nq\nb\n"
+>> pdf.stroke_the_pretty_kitty([100,100], :radius => 25)
+=> "0.000 0.000 0.000 rg\n0.000 0.000 0.000 RG\nq\nb\nS\n"
+>> pdf.donuts
+=> nil
+
+....................................................................................
+
+By coding a +method_missing+ hook without delegating to the original +Object+
+definition, we have effectively muted our object's ability to complain about
+messages we really didn't want it to handle.   To add insult to injury, failure
+cases such as +fill_and_stroke_cirlce+ and +stroke_the_pretty_kitty+ are doubly
+confusing, since they return a non-nil value even though they do not produce
+meaningful results.
+
+Luckily, the remedy to this is simple, we just add a call to +super+ in the
+catch-all case:
+
+....................................................................................
+
+def method_missing(id,*args,&block)
+  case(id.to_s) 
+  when /^fill_and_stroke_(.*)/
+    send($1,*args,&block); fill_and_stroke
+  when /^stroke_(.*)/
+    send($1,*args,&block); stroke 
+  when /^fill_(.*)/
+    send($1,*args,&block); fill
+  else
+    super
+  end
+end 
+
+....................................................................................
+
+Now, if we re-run our examples from before, you see much more predictable
+behavior, in line with what we'd expect if we had no hook set up in the first
+place:
+
+....................................................................................
+
+>> pdf.fill_and_stroke_cirlce([100,100], :radius => 25)
+NoMethodError: undefined method `cirlce' for #<Prawn::Document:0x4e59f8>
+	from /Users/sandal/devel/prawn/lib/prawn/graphics/color.rb:68:in `method_missing'
+	from /Users/sandal/devel/prawn/lib/prawn/graphics/color.rb:62:in `method_missing'
+	from (irb):4
+	from /Users/sandal/lib/ruby19_1/bin/irb:12:in `<main>'
+
+>> pdf.stroke_the_pretty_kitty([100,100], :radius => 25)
+NoMethodError: undefined method `the_pretty_kitty' for #<Prawn::Document:0x4e59f8>
+	from /Users/sandal/devel/prawn/lib/prawn/graphics/color.rb:68:in `method_missing'
+	from /Users/sandal/devel/prawn/lib/prawn/graphics/color.rb:64:in `method_missing'
+	from (irb):5
+	from /Users/sandal/lib/ruby19_1/bin/irb:12:in `<main>'
+
+>> pdf.donuts
+NoMethodError: undefined method `donuts' for #<Prawn::Document:0x4e59f8>
+	from /Users/sandal/devel/prawn/lib/prawn/graphics/color.rb:68:in `method_missing'
+	from (irb):6
+	from /Users/sandal/lib/ruby19_1/bin/irb:12:in `<main>'
+
+....................................................................................
+
+An important thing to remember is that in addition to ensuring that you call
++super+ from within your +method_missing()+ calls, you are also responsible for
+maintaining the method's signature.  Ruby will happily allow you to write a hook
+which only captures the name and not the arguments and block a method is called
+with:
+
+....................................................................................
+
+def method_missing(id)
+  # ...
+end
+
+....................................................................................
+
+However, if you set things up this way, even when you call +super+ you'll be
+breaking things farther up the chain, since +Object#method_missing+ expects the
+whole signature of the function call to remain intact.  So it's not only
+delegating to the original that is important, but delegating without information loss. 
+
+If you're sure to act responsibly with your +method_missing+ calls, it won't be
+that dangerous in most cases.  However, if you get sloppy here, it is virtually
+guaranteed to come back to haunt you.  If you get into this habit right away,
+it'll be sure to save you some headaches down the line.
+
+=== Conclusions ===
+
+This appendix doesn't come close to covering all the trouble you can get
+yourself in with Ruby.  It does however cover some of the most common sources of
+trouble and confusion, while showing some much less painful alternatives.
+
+When it comes to design, much can be gained by simply reducing complexity.  If
+the path you're on seems like it is too difficult, odds are it can be made a lot
+easier if you just think about it in a different way.  As for "clever"
+implementation tricks and shortcuts, they can be more trouble than they're worth
+if they come at the expense of clarity or maintainability of your code.
+
+Put simply, the worst practices in Ruby are ones that make you work much harder
+than you have to.  If you start to introduce code that seems really cool at
+first, but later is shown to introduce complicated faults at the corner cases,
+it is generally wise to just rip it out and start fresh with something a little
+less exciting that's more reliable.
+
+If you maintain the balancing act between creative approaches to your problems
+and ones that work without introducing excess complexity, you'll have a very
+happy time writing Ruby code.  Because Ruby gives you the power to do both good
+and evil, it's ultimately up to you how you want to maintain your projects.
+However, code that is maintainable and predictable is much more of a joy to work
+with than fragile and sloppy hacks that have been simply ductaped together.
+
+Now that we have reached the very end of this book, I trust that you have the
+skills necessary to go out and find the Best and Worst of Ruby Practices on your
+own.  The real challenge is knowing the difference between the two, and that
+ability comes only with practical experience gained by working on and
+investigating real problems.  With luck, this book has included enough real
+world examples to give you a head start in that area, but the heavy lifting needs to
+be done by you.
+
+I hope you have enjoyed this wild ride through Ruby with me, and I really hope
+that something or the other in this book has challenged or inspired you.  Please
+go out now and write some good open source Ruby code, and maybe you'll make a
+guest appearance in the second edition!

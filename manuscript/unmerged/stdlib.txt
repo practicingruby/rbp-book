@@ -1,0 +1,1924 @@
+Appendix B: Leveraging Ruby's Standard Library
+----------------------------------------------
+
+Most of this book has emphasized that understanding how to use tools effectively
+is just as important as having a nice collection of tools.  However, that's not
+to say that knowing where to find the right tool for the job isn't an invaluable
+skill to have.  In this appendix, we'll take a look at a small sampling of
+Ruby's vast standard library.  What you will find is that it is essentially a
+treasure chest of goodies designed to make your Ruby programs more enjoyable to
+write.
+
+=== Why do we need a Standard library? ===
+
+Because of RubyGems, we tend to leverage a lot of third party software.  For 
+this reason, we are often more likely to resort to a google search instead 
+of a search of Ruby's API Documentation when we want to solve a problem that 
+isn't immediately handled in core Ruby.  This isn't necessarily a bad thing, but 
+it is important not to overlook the benefits that come with using a standard 
+library when it is available.   When all else is equal, the gains you'll get 
+from using standard Ruby are easy to enumerate:
+
+  * Ruby standard libraries are typically distributed with Ruby itself, which
+    means no extra software needs to be installed to make them work.
+
+  * Standard libraries don't change rapidly.  Their APIs tend to be stable
+    and mature, and will likely outlast your application's development cycle.
+    This removes the need for frequent compatibility updates that you might
+    experience with third party software.
+
+  * Except for a few obvious exceptions, Ruby standard libraries are guaranteed
+    to run anywhere Ruby runs, avoiding platform-specific issues.
+
+  * Using standard libraries improves the understandability of your code, since
+    they are available to everyone who uses Ruby.  For open source projects,
+    this might make contributions to your project easier, for the same reason.
+
+
+These reasons are compelling enough to encourage us to check Ruby's standard
+library before doing a google search for third party libraries.  However, it
+might be more convincing if you have some practical examples of what can be
+accomplished without resorting to dependency code. 
+
+I've hand picked ten of the libraries I use day in and day out.  This isn't
+necessarily meant to be a "best of" sampling, nor is it meant to point out the
+top ten libraries you need to know about.   We've implictly and explictly
+covered many standard libraries throughout the book, and some of those may be
+more essential than what you'll see here.   However, I'm fairly certain after
+reading this appendix, you'll find at least a few useful tricks in it, and you
+will also get a clear picture of how diverse Ruby's standard library is.
+
+Be sure to keep in mind that while we're looking at 10 examples here, there are
+more than 100 standard libraries packaged with Ruby, about half of which are
+considered mature.  These vary in complexity from simple tools to solve a 
+single task to full fledged frameworks.  Even though you certainly won't need to be
+familiar with every last package and what it does, it's important to be aware of
+the fact that what we're about to discuss is just the tip of the iceberg.
+
+Now, on to the fun.  I've included this appendix because I think it embodies a
+big part of the joy of Ruby programming to me.   I hope when reading through the
+examples, you feel the same way.
+
+=== Pretty-printer for Ruby objects (pp) ===
+
+As I mentioned before, Ruby standard libraries run the gamut from extreme
+simplicity to deep complexity.  I figured we'd kick things off with something in
+the former category.
+
+If you're reading this book, you've certainly made use of +Kernel#p+ during
+debugging.  This handy method which calls +#inspect+ on an object and then
+prints out its result is invaluable for basic debugging needs.  However, reading
+its output for even relatively modest objects can be daunting:
+
+---------------------------------------------------------------------------------
+
+friends = [ { first_name: "Emily", last_name: "Laskin" },
+            { first_name: "Nick",  last_name: "Mauro" },
+            { first_name: "Mark",  last_name: "Maxwell" } ]
+
+me = { first_name: "Gregory", last_name: "Brown", friends: friends }
+
+p me # Outputs:
+
+{:first_name=>"Gregory", :last_name=>"Brown", :friends=>[{:first_name=>"Emily", 
+:last_name=>"Laskin"}, {:first_name=>"Nick", :last_name=>"Mauro"}, {:first_name=
+>"Mark", :last_name=>"Maxwell"}]}
+
+---------------------------------------------------------------------------------
+
+We don't typically write our code this way, because the structure of our objects
+actually means something to us.  Luckily, the +pp+ standard library understands
+this and provides much nicer human readable output.  The changes to use +pp+
+instead of +p+ are fairly simple:
+
+---------------------------------------------------------------------------------
+
+require "pp"
+
+friends = [ { first_name: "Emily", last_name: "Laskin" },
+            { first_name: "Nick",  last_name: "Mauro" },
+            { first_name: "Mark",  last_name: "Maxwell" } ]
+
+me = { first_name: "Gregory", last_name: "Brown", friends: friends }
+
+pp me # Outputs:
+
+{:first_name=>"Gregory",
+ :last_name=>"Brown",
+ :friends=>
+  [{:first_name=>"Emily", :last_name=>"Laskin"},
+   {:first_name=>"Nick", :last_name=>"Mauro"},
+   {:first_name=>"Mark", :last_name=>"Maxwell"}]}
+
+---------------------------------------------------------------------------------
+
+Like when you use +p+, there is a hook to set up +pp+ overrides for your custom
+objects.  This is called +pretty_print+.   Here's a simple implementation that
+shows how you might use it:
+
+---------------------------------------------------------------------------------
+
+require "pp"
+
+class Person
+  def initialize(first_name, last_name, friends)
+    @first_name, @last_name, @friends = first_name, last_name, friends
+  end
+
+  def pretty_print(printer)
+    printer.text "Person <#{object_id}>:\n" <<
+                 "  Name: #@first_name #@last_name\n  Friends:\n" 
+    @friends.each do |f|
+      printer.text "    #{f[:first_name]} #{f[:last_name]}\n"
+    end
+  end
+
+end
+
+friends = [ { first_name: "Emily", last_name: "Laskin" },
+            { first_name: "Nick",  last_name: "Mauro" },
+            { first_name: "Mark",  last_name: "Maxwell" } ] 
+
+person = Person.new("Gregory", "Brown", friends)
+pp person #=> outputs:
+
+Person \<1013900>:
+  Name: Gregory Brown
+  Friends:
+    Emily Laskin
+    Nick Mauro
+    Mark Maxwell
+
+---------------------------------------------------------------------------------
+
+As you can see here, +pretty_print+ takes an argument, which is an instance of
+the current +PP+ object.  Since +PP+ inherits from +PrettyPrint+, a class
+provided by Ruby's 'prettyprint' standard library, it provides a whole host of
+formatting helpers for indenting, grouping, and wrapping structured data output.
+We've stuck with the raw +text()+ call here, but it's worth mentioning that
+there is a lot more available to you if you need it.
+
+A benefit of indirectly displaying your output through a printer object 
+is that it allows +pp+ to give you an inspect-like method that returns a string.  
+try +person.pretty_print_inspect+ to see how this works.  The string represents 
+exactly what would be printed to the console, just like +obj.inspect+ would.  If you
+wish to use +pretty_print_inspect+ as your default inspect method (and therefore
+make p and pp work the same), you can do so easily with an alias:
+
+---------------------------------------------------------------------------------
+
+class Person
+  # other code omitted
+
+  alias_method :inspect, :pretty_print_inspect
+end
+
+---------------------------------------------------------------------------------
+
+Generally speaking, +pp+ does a pretty good job of rendering the debugging
+output for even relatively complex objects, so you may not need to customize its
+behavior often.   However, if you do have a need for specialized output, you'll
+find that the +pretty_print+ hook provides something that is actually quite a
+bit more powerful than Ruby's default +inspect+ hook, and that can really come
+in handy for certain needs.
+
+=== Working with HTTP and FTP (open-uri) ===
+
+Like most other modern programming languages, Ruby ships with libraries for
+working with some of the most common network protocols, including FTP and HTTP.
+However, the +Net::FTP+ and +Net::HTTP+ libraries are designed primarily for
+heavy lifting at the low level.  They are great for this purpose, but they leave
+something to be desired for when all that is needed is to grab a remote file or
+do some basic web scraping.  This is where +open-uri+ shines.
+
+The way +open-uri+ works is by patching +Kernel#open+ to accept URIs.  This
+means we can directly open remote files and work with them.  For example,
+here's how we'd print out Ruby's License using +open-uri+:
+
+---------------------------------------------------------------------------------
+
+require "open-uri"
+
+puts open("http://www.ruby-lang.org/en/LICENSE.txt").read #=> 
+
+"Ruby is copyrighted free software by Yukihiro Matsumoto <matz@netlab.co.jp>.
+You can redistribute it and/or modify it under either the terms of the GPL
+(see COPYING.txt file), or the conditions below: ..."
+
+---------------------------------------------------------------------------------
+
+If we encounter an HTTP error, an +OpenURI::HTTPError+ will be raised, including the
+relevant error code:
+
+---------------------------------------------------------------------------------
+
+>> open("http://majesticseacreature.com/a_totally_missing_document")
+OpenURI::HTTPError: 404 Not Found
+	from /usr/local/lib/ruby/1.8/open-uri.rb:287:in `open_http'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:626:in `buffer_open'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:164:in `open_loop'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:162:in `catch'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:162:in `open_loop'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:132:in `open_uri'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:528:in `open'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:30:in `open'
+	from (irb):10
+	from /usr/local/lib/ruby/1.8/uri/generic.rb:250
+
+>> open("http://prism.library.cornell.edu/control/authBasic/authTest/")        
+OpenURI::HTTPError: 401 Authorization Required
+	from /usr/local/lib/ruby/1.8/open-uri.rb:287:in `open_http'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:626:in `buffer_open'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:164:in `open_loop'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:162:in `catch'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:162:in `open_loop'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:132:in `open_uri'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:528:in `open'
+	from /usr/local/lib/ruby/1.8/open-uri.rb:30:in `open'
+	from (irb):7
+	from /usr/local/lib/ruby/1.8/uri/generic.rb:250
+
+---------------------------------------------------------------------------------
+
+The previous example was a small hint about another feature of 'open-uri', HTTP
+basic authentication.  Notice what happens when we provide a username and
+password accessing the same URI:
+
+---------------------------------------------------------------------------------
+
+>> open("http://prism.library.cornell.edu/control/authBasic/authTest/", 
+?>   :http_basic_authentication => ["test", "this"])
+=> #<StringIO:0x2d1810>
+
+---------------------------------------------------------------------------------
+
+Success!  You can see here that 'open-uri' represents the returned file as a
+StringIO object, which is why we can call +read+ to get its contents.  Of
+course, we can use most other I/O operations as well, but I won't get into that
+here.
+
+As I mentioned before, 'open-uri' also wraps +Net::FTP+, so you could even do
+something like download Ruby with it:
+
+---------------------------------------------------------------------------------
+
+open("ftp://ftp.ruby-lang.org/pub/ruby/1.9/ruby-1.9.1-p0.tar.bz2") do |o|
+  File.open(File.basename(o.base_uri.path), "w") { |f| f << o.read }
+end
+
+---------------------------------------------------------------------------------
+
+Here we see that even though the object returned by +open()+ is a +StringIO+
+object, it includes some extra meta-data, such as the +base_uri+ of your request.  
+These helpers are provided by the +OpenURI::Meta+ module, and are worth looking
+over if you need to get more than just the contents of a file back.
+
+Although there are some advanced features to +open-uri+, it is most useful
+for the simple cases shown here.  Because it returns a +StringIO+ object, this
+means that any fairly flexible interface can be extended to support remote file
+downloads.  For a practical example, we can take a look at Prawn's image
+embedding, which only assumes that an object you pass to it must respond to
++#read+:
+
+---------------------------------------------------------------------------------
+
+Prawn::Document.generate("remote_images.pdf") do 
+  image open("http://prawn.majesticseacreature.com/media/prawn_logo.png")
+end
+
+---------------------------------------------------------------------------------
+
+This feature was accidentally enabled when we allowed the +image()+ method to
+accept Tempfile objects.  Since 'open-uri' smoothly integrates with the rest of
+Ruby, you might find situations where it can come in handy in a similar way in
+your own applications.
+
+=== Working With Dates and Times (date) ===
+
+Core ruby has a `Time` class, but we will encounter a lot situations where we also
+need to work with dates, or combinations of dates and times.  Ruby's 'date'
+standard library gives us +Date+ and +DateTime+, and extends +Time+ with
+conversion methods for each of them.  This library comes packed with a powerful
+parser that can handle all sorts of date formats, and a solid date formatting
+engine to output data based on a template.  Here's just a couple trivial examples
+to give you a sense of its flexibility:
+
+---------------------------------------------------------------------------------
+
+>> Date.strptime("12/08/1985","%m/%d/%Y").strftime("%Y-%m-%d")
+=> "1985-12-08"
+>> Date.strptime("1985-12-08","%Y-%m-%d").strftime("%m/%d/%Y")
+=> "12/08/1985"
+>> Date.strptime("December 8, 1985","%b%e, %Y").strftime("%m/%d/%Y")
+=> "12/08/1985"
+
+---------------------------------------------------------------------------------
+
++Date+ objects can also be queried for all sorts of information, as well as
+manipulated to produce new days:
+
+---------------------------------------------------------------------------------
+
+>> date = Date.today
+=> #<Date: 2009-02-09 (4909743/2,0,2299161)>
+>> date + 1
+=> #<Date: 2009-02-10 (4909745/2,0,2299161)>
+>> date << 1
+=> #<Date: 2009-01-09 (4909681/2,0,2299161)>
+>> date >> 1
+=> #<Date: 2009-03-09 (4909799/2,0,2299161)>
+>> date.year
+=> 2009
+>> date.month
+=> 2
+>> date.day
+=> 9
+>> date.wday
+=> 1
+>> date + 36
+=> #<Date: 2009-03-17 (4909815/2,0,2299161)>
+
+---------------------------------------------------------------------------------
+
+Here we've just scratched the surface, but in the interest of keeping a quick
+pace, we'll dive right into an example.  So far, we've been looking at +Date+,
+but now we're going to work with +DateTime+.  The two are basically the same,
+except that the latter can hold time values as well.  footnote:[A +DateTime+ is also
+similar to Ruby's +Time+ object, but is not constrained to representing only
+those dates that can be represented in UNIX Time: http://en.wikipedia.org/wiki/Unix_time]
+
+---------------------------------------------------------------------------------
+
+>> dtime = DateTime.now
+=> #<DateTime: 2009-02-09T03:56:17-05:00 (53025232444425149/21600000000,-5/24,2299161)>
+>> [:month, :day, :year, :hour, :minute, :second].map { |attr| dtime.send(attr) }
+=> [2, 9, 2009, 3, 56, 17]
+>> dtime.between?(DateTime.now - 1, DateTime.now + 1)
+=> true
+>> dtime.between?(DateTime.now - 1, DateTime.now - 1)
+=> false
+
+---------------------------------------------------------------------------------
+
+What follows is a simplified look at a common problem:  Event scheduling.
+Basically, we want an object that provides functionality like this:
+
+---------------------------------------------------------------------------------
+
+sched = Scheduler.new
+sched.event "2009.02.04 10:00", "2009.02.04 11:30", "Eat Snow"
+sched.event "2009.02.03 14:00", "2009.02.04 14:00", "Wear Special Suit"
+sched.display_events_at '2009.02.04 10:20'
+
+---------------------------------------------------------------------------------
+
+When given a specific date and time, +display_events_at+ would look up all the
+events that were happening at that exact moment:
+
+.................................................................................
+
+Events occuring around 10:20 on 02/04/2009
+--------------------------------------------
+14:00 (02/03) - 14:00 (02/04): Wear Special Suit
+10:00 (02/04) - 11:30 (02/04): Eat Snow    
+
+.................................................................................
+
+This means if we look a little later in the day, you can see that in this
+particular example, although eating snow is a short-lived experience, the
+passion for wearing a special suit carries on.
+
+.................................................................................
+
+sched.display_events_at '2009.02.04 11:45'
+
+## OUTPUTS ##
+
+Events occuring around 11:45 on 02/04/2009
+--------------------------------------------
+14:00 (02/03) - 14:00 (02/04): Wear Special Suit   
+
+.................................................................................
+
+As it turns out, implementing the +Scheduler+ class is pretty straightforward,
+because +DateTime+ objects can be used as endpoints in a Ruby range object.  So
+when we look at these two events, what we're really doing is something similar
+to this:
+
+---------------------------------------------------------------------------------
+
+>> a = DateTime.parse("2009.02.03 14:00") .. DateTime.parse("2009.02.04 14:00")
+>> a.cover?(DateTime.parse("2009.02.04 11:45"))
+=> true
+
+>> b = DateTime.parse("2009.02.04 10:00") .. DateTime.parse("2009.02.04 11:30")
+>> b.cover?(DateTime.parse("2009.02.04 11:45"))
+=> false
+
+---------------------------------------------------------------------------------
+
+When you combine this with things we've already discussed, like flexible date
+parsing and formatting, you end up with a fairly vanilla implementation:
+
+---------------------------------------------------------------------------------
+
+require "date"
+
+class Scheduler
+
+  def initialize
+    @events = []
+  end
+
+  def event(from, to, message)
+    @events << [DateTime.parse(from) .. DateTime.parse(to),  message] 
+  end
+
+  def display_events_at(datetime)
+    datetime = DateTime.parse(datetime)
+    puts "Events occuring around #{datetime.strftime("%H:%M on %m/%d/%Y")}"
+    puts "--------------------------------------------"
+    events_at(datetime).each do |range, message|
+      puts "#{time_abbrev(range.first)} - #{time_abbrev(range.last)}: #{message}"
+    end
+  end
+
+  private
+
+  def time_abbrev(datetime)
+    datetime.strftime("%H:%M (%m/%d)")
+  end
+
+  def events_at(datetime)
+    @events.each_with_object([]) do |event, matched|
+      matched << event if event.first.cover?(datetime)
+    end
+  end
+
+end
+
+---------------------------------------------------------------------------------
+
+We can start by looking at how +event()+ works:
+
+---------------------------------------------------------------------------------
+
+  def event(from, to, message)
+    @events << [DateTime.parse(from) .. DateTime.parse(to),  message] 
+  end
+
+---------------------------------------------------------------------------------
+
+Here we see that each event is simple a tuple consisting of two elements: A
+datetime +Range+, and a message.  We parse the strings on the the fly using
++DateTime.parse+.  This method should typically be used with caution, as it is
+much more reliable to use +Date.strptime+, and much faster to construct a
++DateTime+ manually than it is to attempt to guess the date format.  That having
+been said, there is no substitute when you cannot rely on a standardized date
+format, and it does a good job of providing a flexible interface when one is
+needed.
+
+As this fairly pedestrian code completely covers storing events, what remains to be 
+shown is how they are selectively retrieved and displayed. We'll start with the 
+helper method that looks up what events are going on at a particular time:
+
+---------------------------------------------------------------------------------
+
+  def events_at(datetime)
+    @events.each_with_object([]) do |event, matched|
+      matched << event if event.first.cover?(datetime)
+    end
+  end
+
+---------------------------------------------------------------------------------
+
+Here, we build up our list of matching evens by simply doing iterating over the
+event list and including those only those events in which the datetime +Range+ covers
+the time in question.  This, along with the self explanatory +time_abbrev+ code
+are used to keep +display_events_at+ nice and clean:
+
+---------------------------------------------------------------------------------
+
+  def display_events_at(datetime)
+    datetime = DateTime.parse(datetime)
+    puts "Events occuring around #{datetime.strftime("%H:%M on %m/%d/%Y")}"
+    puts "--------------------------------------------"
+    events_at(datetime).each do |range, message|
+      puts "#{time_abbrev(range.first)} - #{time_abbrev(range.last)}: #{message}"
+    end
+  end
+
+---------------------------------------------------------------------------------
+
+Here, we're doing little more than parsing the date and time passed in as a
+string to get us a +DateTime+ object, and then displaying the results of
++events_at+.  We take advantage of +strftime+ for that, and recover the
+endpoints of the range to include in our output, to show exactly when an event
+starts and stops.  There's really not much more to it.
+
+Although this example is obviously a bit over-simplified, you'll find similar
+problems crop up again and again.   The key thing to remember is to take
+advantage of the ability of +DateTime+ objects to be used within ranges, and
+whenever possible, to avoid parsing dates yourself.  If you need finer
+granularity, use +strptime()+, but for many needs +parse()+ will do the trick while
+providing a more flexible interface to your users.
+
+We've covered some of the most common uses of Ruby's standard 'date' library
+here, but there are of course plenty of other features for the edge case.  As
+with the other topics in this chapter, hit up the API documentation if you have
+a need to know more.
+
+=== Lexical Parsing with Regular Expressions (strscan) ===
+
+Although Ruby's String object provides many powerful features that rely on 
+regular expressions, it can be cumbersome to build any sort of parser with them.
+Most operations you can do directly on strings work on the whole string at
+once, and though they provide +MatchData+ which can be used to index into the
+original content.  This is great when a single pattern fits the bill, but when
+you want to consume some text in chunks, switching up strategies as needed along
+the way, things get a little more hairy.  This is where the 'strscan' library
+comes in.
+
+When you require 'strscan', it provides a class called +StringScanner+.  The
+underlying purpose of using this object is that keeps track of where you are in
+the string as you consume parts of it via regex patterns.  Just to clear up what
+this means, we can take a look at the example used in the RDoc:
+
+---------------------------------------------------------------------------------
+
+s = StringScanner.new('This is an example string')
+s.eos?               # -> false
+
+p s.scan(/\w+/)      # -> "This"
+p s.scan(/\w+/)      # -> nil
+p s.scan(/\s+/)      # -> " "
+p s.scan(/\s+/)      # -> nil
+p s.scan(/\w+/)      # -> "is"
+s.eos?               # -> false
+
+p s.scan(/\s+/)      # -> " "
+p s.scan(/\w+/)      # -> "an"
+p s.scan(/\s+/)      # -> " "
+p s.scan(/\w+/)      # -> "example"
+p s.scan(/\s+/)      # -> " "
+p s.scan(/\w+/)      # -> "string"
+s.eos?               # -> true
+
+p s.scan(/\s+/)      # -> nil
+p s.scan(/\w+/)      # -> nil
+
+---------------------------------------------------------------------------------
+
+From this simple example, it's clear to see that the index is only advanced when
+a match is made.  Once the end of the string is reached, there is nothing left
+to match. Although this may seem a little simplistic at first, it forms the 
+essense of what +StringScanner+ does for us.  We can see that by looking at how
+this is used in the context of something a little more real.
+
+We're about to look at how to parse JSON (Javascript Object Notation), but the 
+example we'll use is primarily for educational purposes, since it demonstrates
+an elegant use of StringScanner.  If you have a real need for this
+functionality, be sure to look at the +json+ standard library that ships with
+Ruby, since that is designed to provide the kind of speed and robustness you'll
+need in production.
+
+In Ruby Quiz #155, James Gray builds up a JSON parser by hand rolling a
+recursive descent parser using +StringScanner+.  He actually covers the full
+solution in depth on the RubyQuiz website
+footnote:[http://rubyquiz.com/quiz155.html], but this abridged version 
+focuses specifically on his use of StringScanner. To keep things simple, we'll
+discuss roughly how he manages to get this small set of assertions to pass:
+
+---------------------------------------------------------------------------------
+
+def test_array_parsing
+  assert_equal(Array.new, @parser.parse(%Q{[]}))
+  assert_equal( ["JSON", 3.1415, true],
+    @parser.parse(%Q{["JSON", 3.1415, true]}) )
+  assert_equal([1, [2, [3]]], @parser.parse(%Q{[1, [2, [3]]]}))
+end
+
+---------------------------------------------------------------------------------
+
+We can see by the general outline how this parser works:
+
+---------------------------------------------------------------------------------
+
+require "strscan"
+
+class JSONParser
+  AST = Struct.new(:value)
+
+  def parse(input)
+    @input = StringScanner.new(input)
+    parse_value.value
+  ensure
+    @input.eos? or error("Unexpected data")
+  end
+
+  private
+
+  def parse_value
+    trim_space
+    parse_object or
+    parse_array or
+    parse_string or
+    parse_number or
+    parse_keyword or
+    error("Illegal JSON value")
+  ensure
+    trim_space
+  end
+  
+
+  # ...
+
+end
+
+---------------------------------------------------------------------------------
+
+Essentially, a +StringScanner+ object is built up using the original JSON
+string.  Then, the parser recursively walks down through the structure and
+parses the data types it encounters.  Once the parsing completes, we expect that
+we'll be at the end of the string, otherwise some data was left unparsed,
+indicating corruption.
+
+Looking at the way +parse_value+ is implemented, we see the benefit of using
+StringScanner.   Before an actual value is parsed, whitespace is trimmed on both 
+ends using the +trim_space+ helper.  This is exactly as simple as you might expect 
+it to be:
+
+---------------------------------------------------------------------------------
+
+ def trim_space
+   @input.scan(/\s+/)
+ end
+
+---------------------------------------------------------------------------------
+
+Of course, to make things a little more interesting, and to continue our job,
+we need to peel back the covers on +parse_array+.  
+
+---------------------------------------------------------------------------------
+
+def parse_array
+  if @input.scan(/\[\s*/) #1
+    array       = Array.new
+    more_values = false
+    while contents = parse_value rescue nil #2
+      array << contents.value
+      more_values = @input.scan(/\s*,\s*/) or break
+    end
+    error("Missing value") if more_values
+    @input.scan(/\s*\]\s*/) or error("Unclosed array") #3
+    AST.new(array)
+  else
+    false
+  end
+end
+
+---------------------------------------------------------------------------------
+
+The beauty of JSON (and this particular parsing solution), is that it very easy
+to see what's going on.  On a successful parse, this code takes three simple
+steps.  First, it detects the opening +[+, indicating the start of a JSON array.
+If it finds that, it creates a Ruby array to populate.  Then, the second step is
+to parse out each value, separated by commas and optional whitespace.   To do
+this, the parser simply calls +parse_value+ again, taking advantage of recursion
+as we mentioned before.   Finally, the third step is to seek towards a closing
++]+, which when found, ends this stage of parsing and returns a Ruby array
+wrapped in the AST struct this parser uses.
+
+Going back to our three assertions, we can trace them one by one. The first one
+was meant to test parsing an empty array:
+
+---------------------------------------------------------------------------------
+
+assert_equal(Array.new, @parser.parse(%Q{[]}))
+
+---------------------------------------------------------------------------------
+
+This one is the most simple to trace, predictably. When +parse_value+ is called
+to capture the contents in the array, it will error out, because no JSON objects
+start with +]+.  James is using a clever trick which banks on a failed parse,
+because that allows him to short circuit processing the contents.  This error is
+swallowed, leaving the contents empty.  The string is the scanned for the
+closing +]+, which is found, and an AST wrapped empty Ruby array is returned.
+
+The second assertion is considerably more tricky:
+
+---------------------------------------------------------------------------------
+
+assert_equal( ["JSON", 3.1415, true],
+  @parser.parse(%Q{["JSON", 3.1415, true]}) )
+
+---------------------------------------------------------------------------------
+
+Here, we need to rely on +parse_value+'s ability to parse strings, numbers, and
+booleans.  All three of these are done using similar techniques to those shown
+so far, but string is a little hairy due to some tricky edge cases.   However,
+to give you a few extra samples, we can take a look at the other two:
+
+---------------------------------------------------------------------------------
+
+def parse_number
+  @input.scan(/-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\b/) and
+    AST.new(eval(@input.matched))
+end
+
+def parse_keyword
+  @input.scan(/\b(?:true|false|null)\b/) and
+    AST.new(eval(@input.matched.sub("null", "nil")))
+end
+
+---------------------------------------------------------------------------------
+
+In both cases, James takes advantage of the similarities between Ruby and JSON
+when it comes to numbers and keywords, and essentially just evals the results
+after a bit of massaging.  The numeric pattern is a little hairy, and you don't
+necessarily need to understand it.  Instead, the interesting thing to note about
+these two examples are their use of +StringScanner#matched+.  As the name
+suggests, this method returns the actual string that was just matched by the
+pattern.  This is a common way to extract values while conditionally scanning
+for matches.   
+
+This pretty much wraps up the interesting bits about getting the second
+assertion to pass.  Here, the parser just keeps attempting to pull off new
+values if it can, while the array code wipes out any intermediate commas.  Once
+the values are exhausted, the +]+ is then searched for, as before.
+
+The third and final case for array parsing may initially seem complicated:
+
+---------------------------------------------------------------------------------
+
+assert_equal([1, [2, [3]]], @parser.parse(%Q{[1, [2, [3]]]}))
+
+---------------------------------------------------------------------------------
+
+However, if you recall that the way +parse_array+ works is to repeatedly call
++parse_value+ until all its elements are consumed, it's clear what is going on.
+Since an array can be parsed by +parse_value+ just the same as any other job,
+the nested arrays have no trouble repeating the same process to find their
+elements, which can also be arrays.  At some point, this process bottoms out,
+and the whole structure is built up.  That means that we actually get to pass this 
+third assertion 'for free', since the implementation already uses recursive
+calls through +parse_value+.
+
+Although this doesn't cover 100% of how James's parser works, it gives you a
+good sense of when +StringScanner+ might be a good tool to have around.  You can
+see how powerful it is to keep a single reference to a +StringScanner+ and use
+it in a number of different methods to consume a string part by part.  This
+allows better decomposition of your program, and simplifies the code by removing
+some of the low-level plumbing from the equation.  So next time you want to do
+regular expression processing on a string chunk by chunk rather than all at
+once, you might want to give StringScanner a try.
+
+=== Cryptographic Hash Functions (digest) ===
+
+Though it might not be something we do every day, having easy access to the
+common cryptographic hash functions can be handy for all sorts of things.  The
++digest+ standard library provides several options, including MD5, SHA1, and
+SHA2.  We'll cover three simple use cases here:  Calculating the checksum of a
+file, uniquely hashing files based on their content, and finally, encrypted
+password storage.  
+
+I won't get into the details about the differences between various hashing
+algorithms, or their limitations.  While they all have a potential risk for what
+is known as a collision, where two distinct content keys are hashed to the same
+value, this is rare enough to not need to worry about in most practical
+scenarios.  Of course, if you're new to encrpytion in general, you will want to
+read up on these techniques elsewhere before attempting to use them for anything
+non-trivial.  Assuming you accept this responsibility, we can move on to see how
+these hashing functions can be used in your Ruby applications.
+
+We'll start with checksums, because these are pretty easy to find in the wild.
+If you've downloaded open source software before, you've probably seen MD5 or
+SHA256 hashes before.  I'll be honest, most of the time I just ignore these, 
+but they do come in handy when you want to verify that an automated downloaded 
+completed correct.  They're also useful if you have a  tendency towards paranoia 
+and want to be sure that the file you are receiving is really what you think it
+is.  Using the Ruby 1.9.1 release notes themselves as an example, we can see what
+a digitally signed file download looks like:
+
+---------------------------------------------------------------------------------
+
+== Location
+* ftp://ftp.ruby-lang.org/pub/ruby/1.9/ruby-1.9.1-p0.tar.bz2
+ SIZE:   7190271 bytes
+ MD5:    0278610ec3f895ece688de703d99143e
+ SHA256: de7d33aeabdba123404c21230142299ac1de88c944c9f3215b816e824dd33321
+
+---------------------------------------------------------------------------------
+
+Once we've downloaded the file, pulling the relevant hashes is trivial.  Here's
+how we'd grab the MD5 hash:
+
+---------------------------------------------------------------------------------
+
+>> require "digest/md5"
+=> true
+>> Digest::MD5.hexdigest(File.binread("ruby-1.9.1-p0.tar.bz2"))
+=> "0278610ec3f895ece688de703d99143e"
+
+---------------------------------------------------------------------------------
+
+If we preferred the slightly more secure SHA256 hash, we don't need to work any
+harder:
+
+---------------------------------------------------------------------------------
+
+>> require "digest/sha2"
+=> true
+>> Digest::SHA256.hexdigest(File.binread("ruby-1.9.1-p0.tar.bz2"))
+=> "de7d33aeabdba123404c21230142299ac1de88c944c9f3215b816e824dd33321"
+
+---------------------------------------------------------------------------------
+
+Since both of these match the release notes, we can be reasonable sure that
+nothing nefarious is going on, and also that our file integrity has been
+preserved.  That's the most common use of this form of hashing.
+
+Of course, in addition to identifying a particular file uniquely, cryptographic
+hashes allow us to identify the uniqueness of a files content.  If you've used
+the revision control system +git+, you may have noticed that the revisions are 
+actually identified by SHA-1 hashes that describe the changesets. We can do
+similar things in our Ruby applications.
+
+For example, in Prawn, we support embedding images in PDF documents.  Because
+these images can be from any number of sources ranging from a tempfile to a
+directly downloaded image from the web, we cannot rely on unique filenames
+mapping to unique images.   Processing images can be pretty costly, especially
+when we do things like split out alpha channels for PNGs, so we want to avoid
+re-processing images where we can avoid it.   The solution to this problem is
+simple:  We use SHA-1 to generate a hexdigest for the image content and then use
+that as a key into a hash.  A rough approximation to what we're doing looks
+like this:
+
+---------------------------------------------------------------------------------
+
+require "digest/sha1"
+
+def image_registry(raw_image_data)
+  img_sha1 = Digest::SHA1.hexdigest(raw_image_data)
+  @image_registry[img_sha1] ||= build_image_obj(raw_image_data)
+end
+
+---------------------------------------------------------------------------------
+
+This techique clearly isn't limited to PDF generation.  To name just
+a couple other use cases, I use a similar hashing technique to make sure the
+content of my blog has changed before re-uploading the static files it
+generates, so that it only uploads the files it needs.   I've also seen this
+used in the context of web applications to prevent identical content from being
+copied again and again to new files.  Fundamentally, these ideas are nearly
+identical to the last code sample, so I won't illustrate them explicitly.
+
+However, while we're on the topic of web applications, we can work our way into
+our last example: secure password storage.
+
+It should be pretty obvious that even if we restrict access to our databases, we
+should not store passwords in clear text.  We have a responsibility to offer
+users a reasonable amount of privacy, and through cryptographic hashing, even
+administrators can be kept in the dark about what individual users passwords
+actually are.  Using the techniques already shown, we get most of the way to a
+solution.
+
+The following example is from an ActiveRecord model as part of a Rails
+application, but it is fairly easily adaptable to any system in which the user
+information is remotely stored outside of the application itself.  Whether or
+not you are familiar with ActiveRecord, the code should be fairly
+straightforward to follow with a little explanation.  Everything except the
+relevant authentication code has been omitted, to keep things well focused.
+
+---------------------------------------------------------------------------------
+
+class User < ActiveRecord::Base
+
+  def password=(pass)     
+    @password = pass
+    salt = [Array.new(6){rand(256).chr}.join].pack("m").chomp
+    self.password_salt, self.password_hash =
+      salt, Digest::SHA256.hexdigest(pass + salt)
+  end
+  
+  def self.authenticate(username,password)
+    user = find_by_username(username)    
+    hash = Digest::SHA256.hexdigest(password + user.password_salt)
+    if user.blank? || hash != user.password_hash       
+      raise AuthenticationError, "Username or password invalid"      
+    end  
+    
+    user
+  end 
+
+end
+
+---------------------------------------------------------------------------------
+
+Here we see two functions, one for setting an individual user's password, and
+another for authenticating and looking up a user by username and password.
+We'll start with setting the password, as this is the most crucial part:
+
+---------------------------------------------------------------------------------
+
+def password=(pass)     
+  @password = pass
+  salt = [Array.new(6){rand(256).chr}.join].pack("m").chomp
+  self.password_salt, self.password_hash =
+    salt, Digest::SHA256.hexdigest(pass + salt)
+end
+
+---------------------------------------------------------------------------------
+
+Here we see that the password is hashed using +Digest::SHA256+, in a similar
+fashion to our earlier examples.   However, this password isn't directly hashed,
+but instead, is combined with a 'salt' to make it more difficult to guess.  This
+technique has been shown in many Ruby cookbooks and tutorials, so you may have
+encountered it before.  Essentially, what you are seeing here is that for each
+user in our database, we generate a random 6 byte sequence and then pack it into
+a base64 encoded string which gets appended to their password before it is
+hashed.  This makes several common attacks much harder to execute, at a minimal
+complexity cost to us.  
+
+An important thing to notice is that what we store is the fingerprint of the password after
+it has been salted rather than the password itself, which means we never store
+the original content and it cannot be recovered.  So while we can tell whether a
+given password matches this fingerprint, the original password cannot be
+retrieved from the data we are storing. 
+
+If this more or less make sense to you, the +authenticate+ method will
+be easy to follow now:
+
+---------------------------------------------------------------------------------
+
+def self.authenticate(username,password)
+  user = find_by_username(username)    
+  hash = Digest::SHA256.hexdigest(password + user.password_salt)
+  if user.blank? || hash != user.password_hash       
+    raise AuthenticationError, "Username or password invalid"      
+  end  
+  
+  user
+end 
+
+---------------------------------------------------------------------------------
+
+Here, we first retrieve the user from the database.  Assuming the username is
+valid, we then look up the salt and add it to our bare password string.  Since
+we never stored the actual password, but only its salted hash, we call
++hexdigest+ again and compare the hash to the one stored in the database.  If
+they match, we return our user object ad all is well, if they don't, an error is
+raised.  This completes the cycle of secure password storage and authentication
+and demonstrates the role that cryptographic hashes play in it.
+
+With that, we've probably talked enough about +digest+ for now.  There are some
+more advanced features available, but so long as you know that +Digest::MD5+,
++Digest::SHA1+ and +Digest::SHA256+ exist and how to call +hexdigest()+ on each
+of them, you have all you'll need to know for most needs.   Hopefully, the
+examples here have illustrated some of the common use cases, and helped you
+think of your own in the process.
+
+=== Mathematical Ruby Scripts (mathn) ===
+
+The 'mathn' standard library, when combined with the core +Math+ module, serves
+to make mathematical operations more pleasant in Ruby.   The main purpose of
+'mathn' is to pull in other standard libraries and integrate them with the rest
+of Ruby's numeric system. You'll notice this right away when doing basic
+arithmetic:
+
+---------------------------------------------------------------------------------
+
+>> 1 / 2
+=> 0
+>> Math.sqrt(-1)
+Errno::EDOM: Numerical argument out of domain - sqrt ..
+
+>> require "mathn"
+=> true
+>> 1 / 2
+=> 1/2
+>> 1 / 2  + 5 / 7
+=> 17/14
+>> Math.sqrt(-1)
+=> (0+1i)
+
+---------------------------------------------------------------------------------
+
+As you can see, integer division gives way when +mathn+ is loaded, in favor of
+returning +Rational+ objects.  These behave like the fractions you learned in
+grade school, and keep values in exact terms rather than expressing them as
+floats where possible. Numbers also gracefully extend into the Complex field,
+without error.  Although this sort of behavior might seem unnecessary for day to
+day programming needs, it can be very helpful for mathematical applications.
+
+In addition to changing the way basic arithmetic works, 'mathn' pulls in a few
+of the higher level mathematical constructs.  For those interested in
+enumerating prime numbers (for whatever fun reason you might have in mind), a
+class is provided. To give you a peek at how it works, we can do things like ask
+for the first 10 primes or how many primes exist up to certain numbers:
+
+---------------------------------------------------------------------------------
+
+>> Prime.first(10)
+=> [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+
+>> Prime.find_index { |e| e > 1000 }
+=> 168
+
+---------------------------------------------------------------------------------
+
+In addition to enabling +Prime+, +mathn+ also allows you to use +Matrix+ and +Vector+ 
+without an explicit require:
+
+---------------------------------------------------------------------------------
+
+>> Vector[1,2,3] * 3
+=> Vector[3, 6, 9]
+>> Matrix[[5,1,2],[3,1,4]].transpose
+=> Matrix[[5, 3], [1, 1], [2, 4]]
+
+---------------------------------------------------------------------------------
+
+These classes can do all sorts of useful linear algebra functions, but I don't
+want to overwhelm the casual Rubyist with mathematical details.  Instead, we'll
+look at a practical use of them and leave the theory as a homework assignment.
+Consider the following simple drawing:
+
+image::images/triangles.png["Triangle", scaledwidth="50%",align="center"]
+
+Here, we see two rather exciting triangles, nuzzling up against each other at a
+single point.  As it turns out, the smaller triangle is nothing more than a
+clone of the larger one, reflected, rotated, and scaled to fit.  Here's the code
+that makes all that happen. footnote:[To run this example, you'll need my
+Prawn-based helpers. These are included in the book's git repository.]
+
+---------------------------------------------------------------------------------
+
+include Math
+
+Canvas.draw("triangles.pdf") do
+  points = Matrix[[0,0], [100,200], [200,100]]
+  
+  paint_triangle(*points)
+
+  # reflect across y-axis
+  points *= Matrix[[-1, 0],[0,1]]
+
+  # rotate so bottom is flush with x axis.
+  theta = -atan(1/2)
+  points *= Matrix[[cos(theta), -sin(theta)],
+                    [sin(theta),  cos(theta)]]
+
+  # scale down by 50%
+  points  *= 1/2
+  paint_triangle(*points)
+end
+
+---------------------------------------------------------------------------------
+
+You don't need to worry about the graphics drawing code.  Instead, focus on the
+use of Matrix manipulations here, and watch what happens to the points in each
+step.  We start off with our initial triangle's coordinates, as such:
+
+---------------------------------------------------------------------------------
+
+>> points = Matrix[[0,0], [100,200], [200,100]]
+=> Matrix[[0, 0], [100, 200], [200, 100]]
+
+---------------------------------------------------------------------------------
+
+Then, we multiply by a 2x2 matrix that performs a reflection across the y-axis:
+
+---------------------------------------------------------------------------------
+
+>> points *= Matrix[[-1, 0],[0,1]]
+=> Matrix[[0, 0], [-100, 200], [-200, 100]]
+
+---------------------------------------------------------------------------------
+
+Notice here that the x values are inverted, while the y value is left untouched.
+This is what translates our points from the right side to the left.  Our next
+task uses a bit of trigonometry to rotate our triangle to lie flat along the
+x-axis.  Notice here that we use the arctan of 1/2, because the bottom edge 
+triangle on the right rises half way towards the upper boundary before
+terminating. If you aren't familiar with how this calculation works, not to
+worry, just observe its results:
+
+---------------------------------------------------------------------------------
+
+>> theta = -atan(1/2)
+=> -0.463647609000806
+>> points *= Matrix[[cos(theta), -sin(theta)],
+?>                  [sin(theta), cos(theta)] ]
+=> Matrix[[0.0, 0.0], [-178.885438199983, 134.164078649987], [-223.606797749979, 0.0]]
+
+---------------------------------------------------------------------------------
+
+The numbers got a bit ugly after this calculation, but there is a key
+observation to make here. The triangle's dimensions were preserved, but two of the 
+points now lie on the x-axis. This means our rotation was successful. 
+
+Finally, we do scalar multiplication to drop the whole triangle down to half it's original size:
+
+---------------------------------------------------------------------------------
+
+>> points *= 1/2
+=> Matrix[[0.0, 0.0], [-89.4427190999915, 67.0820393249935], [-111.803398874989, 0.0]]
+
+---------------------------------------------------------------------------------
+
+This completes the transformation and shows how the little triangle was
+developed simply by manipulating the larger one.  Although this is certainly a
+bit of an abstract example, it hopefully serves as sufficient motivation for
+learning a bit more about matrices.   Although they can certainly be used for
+more hardcore calculations, simple linear transformations such as the ones shown
+here in this example come cheap and easy and demonstrate an effective way to do
+some interesting graphics work.
+
+Although truly hardcore math might be better suited for a more special purpose
+language, Ruby is suprisingly featureful enough to write interesting math
+programs with.  As this particular topic can run far deeper than I have time to
+discuss, I will leave further investigation to the interested reader.  The key
+thing to remember is that 'mathn' puts Ruby in a sort of "math mode" by
+including some of the most helpful standard libraries and modifying the way that
+Ruby does its basic arithmetic.  This feature is so useful that irb includes a
+special switch +-m+ which essentially requires +mathn+ and then includes the
++Math+ module in at the top level.
+
+A small caveat to keep in mind when working with +mathn+ is that it is fairly
+aggressive about the changes it makes.  If you are building a Ruby library, you
+may want to be a bit more conservative and use the individual packages it
+enables one by one rather than having to deal with the consquences of
+potentially breaking code that relies on behaviors such as integer division.
+
+All that having been said, if you're working on your math homework, or building a 
+specialized mathematical application in Ruby, feel free to go wild with all that 
++mathn+ has to offer.
+
+=== Working with Tabular Data (csv) ===
+
+If you need to represent a data table in plain text format, csv footnote:[Comma
+Separated Value] files are about as simple as you can get.  These files can
+easily be processed by almost any programming language, and Ruby is no
+exception.   The 'csv' standard library is fast for pure Ruby,
+internationalized, and down-right pleasant to work with.  
+
+In the most simple cases, it'd be hard to make things easier.  For example, say
+you had a csv file ('payments.csv') that looked like this:
+
+--------------------------------------------------------------------------------
+
+name,payment
+Gregory Brown,100
+Joe Comfort,150
+Jon Juraschka,200
+Gregory Brown,75
+Jon Juraschka,250
+Jia Wu,25
+Gregory Brown,50
+Jia Wu,75
+
+--------------------------------------------------------------------------------
+
+If you want to just slurp this into an array of arrays, it can't be easier:
+
+--------------------------------------------------------------------------------
+
+>> require "csv"
+=> true
+>> CSV.read("payments.csv")
+=> [["name", "payment"], ["Gregory Brown", "100"], ["Joe Comfort", "150"], 
+    ["Jon Juraschka", "200"], ["Gregory Brown", "75"], ["Jon Juraschka", "250"], 
+    ["Jia Wu", "25"], ["Gregory Brown", "50"], ["Jia Wu", "75"]]
+
+--------------------------------------------------------------------------------
+
+Of course, slurping files isn't a good idea if you only want to handle a subset
+of data, but `CSV` makes row by row handling easy.  Here's an example of how
+you'd capture only my records:
+
+--------------------------------------------------------------------------------
+
+>> data = []
+=> []
+>> CSV.foreach("payments.csv") { |row| data << row if row[0] == "Gregory Brown" }
+=> nil
+>> data
+=> [["Gregory Brown", "100"], ["Gregory Brown", "75"], ["Gregory Brown", "50"]]
+
+--------------------------------------------------------------------------------
+
+A common convention is to have the first row of a csv file represent header data.
+`CSV` can give you nicer accessors in this case:
+
+--------------------------------------------------------------------------------
+
+>> data
+=> []
+>> CSV.foreach("payments.csv", :headers => true) do |row|
+?>   data << row if row['name'] == "Gregory Brown"
+>> end
+=> nil
+>> data
+=> [#<CSV::Row "name":"Gregory Brown" "payment":"100">, 
+    #<CSV::Row "name":"Gregory Brown" "payment":"75">, 
+    #<CSV::Row "name":"Gregory Brown" "payment":"50">]
+
+--------------------------------------------------------------------------------
+
++CSV::Row+ are sort of a hash / array hybrid.  The primary feature they have
+that distinguishes them from a hash is that allow for duplicate field names.
+Here's an example of how that works.
+
+Given a simple file with non-unique column names like this ('phone_numbers.csv'):
+
+--------------------------------------------------------------------------------
+
+applicant,phone_number,spouse,phone_number
+James Gray,555 555 5555,Dana Gray,123 456 7890
+Gregory Brown,098 765 4321,Jia Wu,222 222 2222
+
+--------------------------------------------------------------------------------
+
+We can extract both `"phone_number"` fields, as shown below:
+
+--------------------------------------------------------------------------------
+
+>> data = CSV.read("phone_numbers.csv", :headers => true)
+=> #<CSV::Table mode:col_or_row row_count:3>
+>> data.map { |r| r["phone_number"], r["phone_number",2] } 
+=> [["555 555 5555", "123 456 7890"], [" 098 765 4321", "222 222 2222"]]
+
+--------------------------------------------------------------------------------
+
+We see that CSV::Row#[] takes an optional second argument which is an
+offset from which to begin looking for a field name.  For this particular data,
++r["phone_number",0]+ and `r["phone_number",1]` would resolve as the first phone
+number field, where an index of 2 or 3 would look up the second phone number.
+If we know the names of the columns near each phone number, we can do this in a
+bit of a smarter way:
+
+--------------------------------------------------------------------------------
+
+>> data.map { |r| [ r["phone_number", r.index("applicant")],
+?>                  r["phone_number", r.index("spouse")] ] }
+=> [[" 555 555 5555", "123 456 7890"], ["098 765 4321", "222 222 2222"]]
+
+--------------------------------------------------------------------------------
+
+Although this still depends on ordinal positioning to some extent, it allows us
+to do a relative index lookup.  If we know that phone number is always going to
+be next to applicant and spouse, it doesn't matter which column they start at.
+Whenever you can take advantage of this sort of flexibility, it's a good idea to do
+so.
+
+So far, we've talked about reading files, but the +csv+ library handles writing
+as well.  Rather than continue with our irb-based exploration, I'll just combine
+the features we've already gone over with a couple new ones, so that we can look
+at a tiny but fully functional script.
+
+Our task is to convert the previously mentioned payments.csv file into a summary
+report ('payment_summary.csv'), which will look like this:
+
+--------------------------------------------------------------------------------
+
+name,total payments
+Gregory Brown,225
+Joe Comfort,150
+Jon Juraschka,450
+Jia Wu,100
+
+--------------------------------------------------------------------------------
+
+Here, we've done a grouping on name and summed up the payments.  If you thought
+this might be a complicated process, you thought wrong.  Here's all that needs
+to be done:
+
+--------------------------------------------------------------------------------
+
+require "csv"
+
+@totals = Hash.new(0)
+
+csv_options = {:headers => true, :converters => :numeric }
+
+CSV.foreach("payments.csv", csv_options) do |row|
+  @totals[row['name']] += row['payment']
+end
+
+CSV.open("payment_summary.csv", "w") do |csv|
+  csv << ["name","total payments"]
+  @totals.each { |row| csv << row }
+end
+
+--------------------------------------------------------------------------------
+
+The core mechanism for doing the grouping-and-summing operation is just a Hash
+with default values of zero for unassigned keys.  If you haven't seen this
+technique before, be sure to make a note of it because you'll see it all over
+Ruby scripts.  The rest of the work is easy once we exploit this little trick.
+
+As far as processing the initial csv file goes, the only new trick we've added is to
+specify the option `:converters => :numeric`.  This tells `CSV` to hit each
+cell with a check to see if it contains a valid Ruby number.  It then does the
+right thing and converts it to a +Fixnum+ or +Float+ if there's a match.   This
+lets us normalize our data as soon as it's loaded, rather than litter our code
+with +to_i+ and +to_f+ calls.
+
+For this reason, the +foreach+ loop is nothing more than simple addition, keying
+the name to a running total of payments.
+
+Finally, we get to the writing side of things.  We use +CSV.open+ in a similar
+way to how we might use +File.open+, and populate a `CSV` object by shoving arrays
+which represent rows into it.  This code is a little prettier than it might be
+in the general case since we're only working with two columns, but you should be
+able to see that the process is relatively straightforward nonetheless.
+
+Here we see a useful little script based on the +csv+ library weighing in at
+around 10 lines of code.  As impressive as that might be, we haven't even 
+scratched the surface on this one, so be sure to dig deeper if you have a need
+for processing tabular data files.  One thing that I didn't show at all is that
+`CSV` handles reading and writing from strings just as well as it does
+files, which may be useful in web applications and other places where there is a
+need to stream files rather than work directly with the filesystem.  Another is
+dealing with different column and row record separators.  Luckily, the +csv+
+library is comparably well documented, so all of these things are just a quick
+API documentation search away.
+
+A great thing about the newly revamped `CSV` standard library is that you don't
+necessarily need to upgrade to Ruby 1.9 to use it.  It started as a third-party
+alternative to Ruby 1.8's CSV standard library, under the name +FasterCSV+, and
+this project is still supported under Ruby 1.8.6.   So if you like what you see
+here, and you want to use it in some of your legacy Ruby code, you can always
+install the 'fastercsv' gem and be up and running.
+
+=== Transactional Filesystem Based Data Storage (pstore) ===
+
++PStore+ provides a simple, transactional database for storing Ruby objects 
+within a file.  This gives you a persistence layer without relying on any
+external resources, which can be very handy.  Using +PStore+ is so simple that I
+can forgo most of the details and jump right into some code that I use for a
+'Sinatra' microapp at work.  What follows is a very simple backend for storing
+replies to an anonymous survey:
+
+--------------------------------------------------------------------------------
+
+class SuggestionBox
+
+  def initialize(filename="suggestions.pstore")
+    @filename = filename
+  end
+
+  def store
+    @store ||= PStore.new(@filename)
+  end
+
+  def add_reply(reply)
+    store.transaction do
+      store[:replies] ||= []
+      store[:replies] << reply
+    end
+  end
+
+  def replies(readonly=true)
+    store.transaction do
+      store[:replies]
+    end
+  end
+
+  def clear_replies
+    store.transaction do
+      store[:replies] = []
+    end
+  end
+
+end
+
+--------------------------------------------------------------------------------
+
+In our application, the usage of this object for storing responses is quite
+simple.  Given that +box+ is just a +SuggestionBox+ in the following code, we
+just have a single call to +add_reply+ that looks something like this:
+
+--------------------------------------------------------------------------------
+
+  box.add_reply(:question1 => params["question1"], 
+                :question2 => params["question2"])
+
+--------------------------------------------------------------------------------
+
+Later, when we need to generate a PDF report of all the replies in the suggestion 
+box, we do something like this to extract the responses to the two questions:
+
+--------------------------------------------------------------------------------
+  
+  question1_replies = []
+  question2_replies = []
+  box.replies.each do |reply|
+    question1_replies << reply[:question1]
+    question2.replies << reply[:question2]
+  end
+
+--------------------------------------------------------------------------------
+
+So that covers the usage, but let's go back in a little more detail to the
+implementation. You can see that our +store+ is initialized by just constructing
+a new PStore object and passing it a file name.
+
+--------------------------------------------------------------------------------
+
+  def store
+    @store ||= PStore.new(@filename)
+  end
+
+--------------------------------------------------------------------------------
+
+Then, when it comes to using our PStore, it basically looks like we're dealing
+with a hash-like object, but all of our interactions with it are through these
++transaction+ blocks:
+
+--------------------------------------------------------------------------------
+
+  def add_reply(reply)
+    store.transaction do
+      store[:replies] ||= []
+      store[:replies] << reply
+    end
+  end
+
+  def replies
+    store.transaction(readonly=true) do
+      store[:replies]
+    end
+  end
+
+  def clear_replies
+    store.transaction do
+      store[:replies] = []
+    end
+  end
+
+--------------------------------------------------------------------------------
+
+So the real question here, is what do we gain?  The answer is predictably, a
+whole lot footnote:[ The following paragraph summarizes a RubyTalk post from Ara
+T. Howard: http://blade.nagaokaut.ac.jp/cgi-bin/scat.rb/ruby/ruby-talk/177666].  
+
+By using +PStore+, we can be sure that only one write-mode transaction is open
+at a time, preventing issues with partial reads / writes in multi-processed
+applications.  This means that if we attempt to produce a report against
++SuggestionBox+ while a new suggestion is being written, our report will wait
+until the write operation completes before it processes.  However, when all
+transactions are read-only, they will not block each other, allowing them to run
+concurrently.
+
+Every transaction reloads the file at its start, keeping things up to date and
+synchronized.  Every write that is done checks the MD5 sum of the contents to
+avoid unnecessary writes for non-changing data.  If something goes wrong during
+a write, all the write operations in a transaction are rolled back and an
+exception is raised.  In short, +PStore+ provides a fairly robust persistence
+framework that is suitable for use across multiple applications or threads.
+
+Of course, though it is great for what it does, +PStore+ has notable
+limitations.  Because it loads the entire data set on every read, and writes the
+whole data set on every write, it is very I/O intensive.  This means it's not
+meant to handle very high load or large data sets.   Additionally, since it is
+essentially nothing more than a file-based +Hash+ object, it cannot serve as a
+substitute for some sort of SQL server when dealing with relational data that
+needs to be efficiently queried.  Finally, since it uses the core utility
++Marshal+ to serialize objects to disk footnote:[The +yaml/store+ library will 
+allow you to use YAML in place of Marshal, but with many of the same limitations], +PStore+ 
+cannot be used to store certain objects.  These include anonymous classes 
+and +Proc+ objects, among other things.
+
+Despite these limitations, PStore has a very wide sweet spot in which it is the
+right way to go.   Whenever you need to persist a modest amount of
+non-relational data and possibly share it across processes or threads, it is 
+usually the proper tool for the job.  Although it is possible to code up your 
+own persistence solutions on top of Ruby's raw serialization support, +PStore+ 
+solves most of the common needs in a rather elegant way.
+
+=== Human Readable Data Serialization (json) ===
+
+JSON footnote:[Javascript Object Notation: json.org] is an object serialization
+format that has been gaining a ton of steam lately.  With the rise of a service
+oriented web, the need for a simple, language independent data serialization
+format has become more and more apparent.
+
+Historically, XML has been used for interoperable data serialization.  However,
+using XML for this is a bit like going bird hunting with a bazooka; it's just
+way more firepower than the job requires.  JSON aims to do one thing and do it
+well, and these constraints give rise to a human readable, human editable, easy
+to parse and easy to produce data interchange format.
+
+The primitive constructs provided by JSON are limited to hashes 
+footnote:[called objects in JSON], arrays, strings, numbers, and the conditional
+triumvirate of +true+, +false+, and +nil+ footnote:[called +null+ in JSON]. 
+It's easy to see that these concepts  trivially map to core Ruby objects.
+Let's take a moment to see how each of these data types are represented in json:
+
+...............................................................................
+
+require "json"
+
+hash = { "Foo" => [Math::PI, 1, "kittens"], 
+         "Bar" => [false, nil, true], "Baz" => { "X" => "Y" } } #...
+
+puts hash.to_json #=> Outputs
+{"Foo":[3.14159265358979,1,"kittens"],"Bar":[false,null,true],"Baz":{"X":"Y"}}
+
+...............................................................................
+
+There isn't really much to it.  In fact, JSON is somewhat syntactically similar
+to Ruby.  Though the similarity is only superficial, it is nice to be able to
+read and write structures in a format that doesn't feel completely alien.
+
+If we go the other direction, from JSON into Ruby, you'll see that the
+transformation is just as easy:
+
+...............................................................................
+
+require "json"
+
+json_string = '{"Foo":[3.14159265358979,1,"kittens"],"Bar":[false,null,true],"Baz":{"X":"Y"}}'
+
+
+hash = JSON.parse(json_string)
+
+p hash["Bar"] #=> Outputs
+[false,nil,true]
+
+p hash["Baz"] #=> Outputs
+{ "X"=>"Y" }
+
+...............................................................................
+
+Without knowing much more about Ruby's 'json' standard library, you can move on to
+building useful things.  So long as you know how to navigate the nested hash and
+array structures, you can work with pretty much any service that exposes a JSON
+interface as if were responding to you with Ruby structures.  As an example, we
+can look at a fairly simple interface that does a web search and processes the
+JSON data set it returns:
+
+...............................................................................
+
+require "json"
+require "open-uri"
+require "cgi"
+
+module GSearch
+  extend self
+
+  API_BASE_URI = 
+    "http://ajax.googleapis.com/ajax/services/search/web?v=1.0&q="
+
+  def show_results(query)
+    results = response_data(query)
+    results["responseData"]["results"].each do |match|
+      puts CGI.unescapeHTML(match["titleNoFormatting"]) + ":\n  " + match["url"]
+    end
+  end
+
+  def response_data(query)
+    data = open(API_BASE_URI + URI.escape(query),
+                  "Referer" => "http://rubybestpractices.com").read
+    JSON.parse(data)
+  end
+
+end
+
+...............................................................................
+
+Here we're using 'json' and the 'open-uri' library which was discussed earlier in
+this chapter to wrap a simple Google web search.  When run, this code will print
+out a few page titles and their URLs for any query you enter.  Here's a sample
+of +GSearch+ in action:
+
+...............................................................................
+
+GSearch.show_results("Ruby Best Practices") # OUTPUTS
+
+Ruby Best Practices: Rough Cuts Version | O'Reilly Media:
+  http://oreilly.com/catalog/9780596156749/
+Ruby Best Practices: The Book and Interview with Gregory Brown:
+  http://www.rubyinside.com/ruby-best-practices-gregory-brown-interview-1332.html
+On Ruby: A 'Ruby Best Practices' Blogging Contest:
+  http://on-ruby.blogspot.com/2008/12/ruby-best-practices-blogging-contest.html
+Gluttonous : Rails Best Practices, Tips and Tricks:
+  http://glu.ttono.us/articles/2006/02/06/rails-best-practices-tips-and-tricks
+
+...............................................................................
+
+Maybe by the time this book comes out, we'll have nabbed all four of the top
+spots, but that's besides the point.  You'll want to notice that the +GSearch+
+module interacts with the 'json' library in a sum total of one line, in order to 
+convert the dataset into Ruby.  After that, the rest is business as usual.
+
+The interesting thing about this particular example is that I didn't read any of
+the documentation for the search API.  Instead, I tried a sample query,
+converted the JSON to Ruby, and then used `Hash#keys` to tell me what attributes
+were available.  From there continued to use ordinary Ruby reflection and 
+inspection techniques straight from irb to figure out which fields were needed
+to complete this example.  By thinking of JSON datasets as nothing more than the
+common primitive Ruby objects, you can accomplish a lot using the skills you're
+already familiar with.
+
+After seeing how easy it is to consume JSON, you might be wondering how you'd go
+about producing it using your own custom objects.  As it turns out, there really
+isn't that much to it.  Say for example you had a +Point+ class that was
+responsible for doing some calculations, but that at its essence it was
+basically just an ordered pair representing an [x,y] coordinate.  Producing the
+JSON to match this is easy:
+
+...............................................................................
+
+require "json"
+
+class Point
+  def initialize(x,y)
+    @x, @y = x, y
+  end
+
+  def distance_to(point)
+    Math.hypot(point.x - x, point.y - y)
+  end
+
+  attr_reader :x, :y
+
+  def to_json(*args)
+    [x,y].to_json(*args)
+  end
+
+end
+
+point_a = Point.new(1,2)
+
+puts point_a.to_json #=> "[1,2]"
+
+point_data = JSON.parse('[4,6]')
+point_b = Point.new(*point_data)
+
+puts point_b.distance_to(point_a) #=> 5.0
+
+...............................................................................
+
+Here, we have simply represented our core data in primitives and then wrapped
+our object model around it.  In many cases, this is the most simple,
+implementation-independent, way to represent one of our objects.
+
+However, in some cases you may wish to let the object internally interpret the
+structure of a JSON document, and do the wrapping for us.  The Ruby JSON library
+provides a simple hook that depends on a bit of metadata to convert our parsed
+JSON into a customized higher level Ruby object.  If we re-work our example, we
+can see how it works:
+
+...............................................................................
+
+require "json"
+
+class Point
+  def initialize(x,y)
+    @x, @y = x, y
+  end
+
+  def distance_to(point)
+    Math.hypot(point.x - x, point.y - y)
+  end
+
+  attr_reader :x, :y
+
+  def to_json(*args)
+    { 'json_class' => self.class.name,
+      'data' => [@x, @y] }.to_json(*args)
+  end
+
+  def self.json_create(obj)
+    new(*obj['data'])
+  end
+end
+
+point_a = Point.new(1,2)
+puts point_a.to_json #=> {"json_class":"Point","data":[1,2]}
+
+
+point_b = JSON.parse('{"json_class":"Point","data":[4,6]}')
+puts point_b.distance_to(point_a) #=> 5.0
+
+...............................................................................
+
+Although a little more work needs to be done here, we can see that the
+underlying mechanism for a direct Ruby -> JSON -> Ruby round trip is simple.
+The JSON library depends on an attribute +json_class+ which points to a string
+which represents a Ruby class name.  If this class has a method called
++json_create+, the parsed JSON data is passed to this method and its return
+value is returned by +JSON.parse+.  Although this approach involves rolling up
+our sleeves a bit, it is nice to see that there is not much magic to it.
+
+Although this adds some extra noise to our JSON output, it does not add any new
+constructs, so there is not an issue with other programming languages being able
+to parse it and use the underlying data.  It simply comes with the added benefit
+of Ruby applications being able to simply map raw primitive data to the classes
+which wrap them.
+
+Depending on your needs, you may prefer one technique over the other.  The
+benefit of providing a simple +to_json+ hook that produces raw primitive values
+is that it keeps your serialized data completely implementation agnostic.  This
+will come in handy if you need to support a wide range of clients.  The benefit 
+of using the +"json_class"+ attribute is that you do not have to think about 
+manually building up high level objects from your object data.  This is most
+beneficial when you are serving up data to primarily Ruby clients, or when your
+data is complex enough where manually constructing objects would be painful.
+
+No matter what your individual needs are, it's safe to say that +JSON+ is
+something to keep an eye on moving forward.  Ruby's implementation is fast and 
+easy to work with.  If you need to work with or write your own web services,
+this is definitely a tool you will want to familiarize yourself with.
+
+=== Embedded Ruby For Code Generation (erb) ===
+
+Code generation can be useful for dynamically generating static files based on a
+template.  When we need this sort of functionality, we can turn to the +erb+
+standard library.  ERB stands for 'Embedded Ruby', which is ultimately exactly
+what the library facilitates. 
+
+In the most basic case, a simple ERB template footnote:[Credit: This is the first
+example in the ERB API documentation] might look like this:
+
+...............................................................................
+
+require 'erb'
+
+x = 42
+template = ERB.new("The value of x is: <%= x %>")
+puts template.result(binding)
+
+...............................................................................
+
+The resulting text looks like this:
+
+...............................................................................
+
+The value of x is: 42 
+
+...............................................................................
+
+If you've not worked with ERB before, you may be wondering how this differs from
+ordinary string interpolation, such as this:
+
+...............................................................................
+  
+x = 42
+puts "The value of x is: #{x}"
+
+...............................................................................
+
+The key difference to recognize here is the way the two strings are evaluated.
+When we use string interpolation, our values are substituted immediately.  When
+we evaluate an ERb template, we do not actually evaluate the expression inside
+the +<%= ... %>+ until we call +ERB#result+.  That means that while this code
+does not work at all:
+
+...............................................................................
+  
+string = "The value of x is: #{x}"
+x = 42
+puts string
+
+...............................................................................
+
+The following code will work without any problems:
+
+...............................................................................
+
+require 'erb'
+
+template = ERB.new("The value of x is: <%= x %>")
+x = 42
+
+puts template.result(binding)
+
+...............................................................................
+
+This is the main reason why ERB can be useful to us.  We can write templates
+ahead of time, referencing variables and methods that may not exist yet, and
+then bind them just before rendering time using `binding`.
+
+We can also include some logic in our files, to determine what should be
+printed.  
+
+...............................................................................
+
+require "erb"
+
+class A
+  
+  def initialize(x)
+    @x = x
+  end
+  
+  attr_reader :x
+
+  public :binding
+
+  def eval_template(string)
+    ERB.new(string,0,'<>').result(binding)
+  end
+    
+end
+
+template = <<-EOS
+<% if x == 42 %>
+You have stumbled across the Answer to the Life, the Universe, and Everything
+<% else %>
+The value of x is <%= x %>
+<% end %>
+EOS
+
+foo = A.new(10)
+bar = A.new(21)
+baz = A.new(42)
+
+[foo, bar, baz].each { |e| puts e.eval_template(template) }
+
+...............................................................................
+
+Here, we run the same template against three different objects evaluating it
+within the context of each of their bindings.  The more complex +ERB.new+ call here
+sets the safe_level the template is executed in to 0 (the default), but this is
+just because we want to provide the third argument, trim_mode.  When trim_mode
+is set to +"<>"+, the newlines are omitted for lines starting in +<%+ and ending
+in +%>+.  As this is useful for embedding logic, we need to turn it on to keep
+the generated string from having ugly stray newlines.  The final output of the
+script looks like this:
+
+...............................................................................
+
+The value of x is 10
+The value of x is 21
+You have stumbled across the Answer to the Life, the Universe, and Everything
+
+...............................................................................
+
+As you can see, +ERB+ does not emit text when it is within a conditional block that
+is not satisfied.  This means a lot in the way of building up dynamic output, as
+you can use all your normal control structures to determine what text should and
+should not be rendered.
+
+The documentation for the +erb+ library is quite good, so I won't attempt to dig
+much deeper here.  Of course, no mention of +ERB+ would be complete without an 
+example of HTML templating. Although the API documentation goes into much mo
+re complicated examples, I can't resist showing the template that I use for
+rendering entries in my blog engine footnote:[http://github.com/sandal/blaag].  This doesn't 
+include the site layout, but just the code that gets run for each entry:
+
+...............................................................................
+
+<h2><%= title %></h2>
+
+<%= entry %>
+ 
+<div align="right">
+<p><small>Written by <%= Blaag::AUTHOR %> on 
+<%= published_date.strftime("%Y.%m%.%d") %> at 
+<%= published_date.strftime("%H:%M" )%>  | <%= related %>  
+</small> 
+  </p>     
+</div>
+
+...............................................................................
+
+This code is evaluated in the context of a +Blaag::Entry+ object, which as you can
+clearly see, does most of the heavy lifting through helper methods.  Although
+this example might be boring and a bit trivial, it shows something worth keeping
+in mind.  Just because you can do all sorts of logic in your +ERB+ templates
+doesn't mean you should.  The fact that these templates can be evaluated a
+custom binding means that you are able to keep your code where it should be
+while avoiding messy string interpolation.  If your +ERB+ templates start to
+look more like Ruby scripts than templates, you'll want to clean things up
+before you start pulling your hair out.
+
+Using +ERB+ for templating can really come in handy.  Whether you need to
+generate a form letter or just plug some values into a complicated data format,
+the ability to late bind data to a template and generate dynamic content on the
+fly from static templates is powerful indeed.  Just be sure to keep in mind that
++ERB+ is meant to suppliment your ordinary code rather than replace it, and
+you'll be able to take advantage of this useful library without creating a big
+mess.
+
+=== Conclusions ===
+
+Hopefully these examples show the diversity you can come to expect from Ruby's
+standard library.  What you have probably noticed by now is that there really is
+a lot there, so much so that it might be a little overwhelming at first.
+Another observation you may have made is that there seems to be little
+consistency in interface between the libraries.  This is because many were
+written by different people at different stages in Ruby's evolution.  
+
+However, assuming that you can tolerate the occasional wart, a solid working
+knowledge of what is available in Ruby's standard library is a key part of
+becoming a masterful Rubyist.  It goes beyond simply knowing about and using
+these tools, though.  Many of the libraries discussed here are written in pure 
+Ruby, which means you can actually learn a lot by grabbing a copy of Ruby's 
+source and reading through their implementations. I know I've learned a lot in
+this manner, so I wholeheartedly recommend it as a way to test and polish your
+Ruby chops.

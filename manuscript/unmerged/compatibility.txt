@@ -1,0 +1,664 @@
+Appendix A: Writing Backwards Compatible Code
+---------------------------------------------
+
+Not everyone has the luxury of using the latest and greatest tools available.
+Though Ruby 1.9 may be gaining ground among developers, much legacy code still
+runs on Ruby 1.8.  Many folks have a responsibility to keep their code 
+running on Ruby 1.8, whether it is in house, open source, or a commercial
+application.  This chapter will show you how to maintain backwards 
+compatibility with Ruby 1.8.6 without preventing your code from running 
+smoothly on Ruby 1.9.1.
+
+I am assuming here that you are back-porting code to Ruby 1.8, but this may
+also serve as a helpful guide as to how to upgrade your projects to 1.9.1.
+That task is somewhat more complicated however, so your mileage may vary.
+
+The earlier you start considering backwards compatibility in your project,
+the easier it will be to make things run smoothly.  I'll start by showing
+you how to keep your compatibility code manageable from the start, and then 
+go on to describe some of the issues you may run into when supporting Ruby 
+1.8 and 1.9 side by side.
+
+Please note that when I mention 1.8 and 1.9 without further qualifications, I'm
+taking about Ruby 1.8.6 and its compatible implementations, and respectively,
+Ruby 1.9.1 and its compatible implementations.  We have skipped Ruby 1.8.7 and
+Ruby 1.9.0 because both are transitional bridges between 1.8.6 and 1.9.1 and
+aren't truly compatible with either.
+
+Another thing to keep in mind is that this is definitely not intended to be 
+a comprehensive guide to the differences between the versions of Ruby.  Please
+consult your favorite reference after reviewing the tips you read here.
+
+But now that you have been sufficiently warned, we can move on to talking 
+about how to keep things clean.
+
+=== Avoiding a Mess ===
+
+It is very tempting to run your test suite on one version of Ruby, check to
+make sure everything passes, then run it on the other version you want to
+support and see what breaks.  After seeing failures, it might seem 
+easy enough to just drop in code such as the following to make things go
+green again:
+
+----------------------------------------------------------------------------
+
+def my_method(string)
+  lines = if RUBY_VERSION < "1.9"
+    string.to_a
+  else
+    string.lines
+  end
+  do_something_with(lines)
+end
+
+----------------------------------------------------------------------------
+  
+Resist this temptation!  If you aren't careful, this will result in a giant
+mess that will be difficult to refactor, and will make your code less 
+readable.  Instead, we can approach this in a more organized fashion.
+
+==== Selective Backporting ====
+
+Before duplicating any effort, it's important to check and see if there is
+a reasonable way to write your code in another way that will allow it to
+run on both Ruby 1.8 and 1.9 natively.  Even if this means writing code that's
+a little more verbose, it's generally worth the effort as it prevents the
+codebase from diverging.
+
+If this fails however, it may make sense to simply back-port the feature you
+need to Ruby 1.8.  Because of Ruby's open classes, this is easy to do.  We can
+even loosen up our changes so that they check for particular features rather than a
+specific version number, to improve our compatibility with other applications and
+Ruby implementations:
+
+----------------------------------------------------------------------------
+
+class String
+  unless "".respond_to?(:lines)
+    alias_method :lines, :to_a
+  end
+end
+
+----------------------------------------------------------------------------
+
+Doing this will allow you to re-write your method so that it looks more 
+natural:
+
+----------------------------------------------------------------------------
+
+def my_method(string)
+  do_something_with(string.lines)
+end
+
+----------------------------------------------------------------------------
+
+Although this implementation isn't exact, it is good enough for our needs
+and will work as expected in most cases.  However, if we wanted to be 
+pedantic, we'd be sure to return an Enumerator instead of an Array:
+
+----------------------------------------------------------------------------
+
+class String
+  unless "".respond_to?(:lines)
+    require "enumerator"
+
+    def lines
+      to_a.enum_for(:each)
+    end
+  end
+end
+
+----------------------------------------------------------------------------
+
+If you aren't redistributing your code, passing tests in your application
+and code that works as expected are a good enough indication that your 
+backwards compatibility patches are working.  However, in code that you plan
+to distribute, open source or otherwise, you need to be prepared to make
+things more robust when necessary.  Any time you distribute code that
+modifies core Ruby, you have an implicit responsibility of not breaking third 
+party libraries or application code, so be sure to keep this in mind and
+clearly document exactly what you have changed.
+
+In Prawn, we use a single file, 'prawn/compatibility.rb', to store all the core
+extensions used in the library that support backwards compatibility. This
+helps make it easier for users to track down all the changes made by the
+library, which can help make subtle bugs that can arise from version 
+incompatibilities easier to spot.
+
+In general, this approach is a fairly solid way to keep your application code
+clean while supporting both Ruby 1.8 and 1.9.  However, you should only use
+it to add new functionality to Ruby 1.8.6 that isn't present in 1.9.1, and not
+to modify existing behavior.  Adding functions that don't exist in a standard
+version of Ruby is a relatively low risk procedure, whereas changing core
+functionality is a far more controversial practice.
+
+==== Version-specific Codeblocks ====
+
+If you run into a situation where you really need two different approaches
+between the two major versions of Ruby, you can use a trick to make this
+a bit more attractive in your code.
+
+----------------------------------------------------------------------------
+
+if RUBY_VERSION < "1.9" 
+  def ruby_18
+    yield
+  end
+
+  def ruby_19 
+    false
+  end
+else
+  def ruby_18
+    false
+  end
+  
+  def ruby_19
+    yield
+  end   
+end
+
+----------------------------------------------------------------------------
+
+Here's an example of how you'd make use of these methods:
+
+----------------------------------------------------------------------------
+
+def open_file(file)
+  ruby_18 { File.open("foo.txt","r") } ||
+    ruby_19 { File.open("foo.txt", "r:UTF-8") }
+end
+
+----------------------------------------------------------------------------
+  
+Of course, since this approach creates a divergent codebase, it should be
+used as sparingly as possible.  However, since this looks a little nicer
+than a conditional statement and provides a centralized place for changes to
+minor version numbers if needed, it is a nice way to go when it is actually
+necessary.
+
+==== Compatibility shims for common operations ====
+
+When you need to accomplish the same thing in two different ways, you can
+also consider adding a method to both versions of Ruby.  Although Ruby 1.9.1
+shipped with `File.binread()`, this method did not exist in the earlier 
+developmental versions of Ruby 1.9.
+
+Although a handful of +ruby_18+ and +ruby_19+ calls here and there aren't that bad,
+the need for opening binary files was pervasive, and it got tiring to see
+the following code popping up everywhere this feature was needed:
+
+----------------------------------------------------------------------------
+
+ruby_18 { File.open("foo.jpg", "rb") } ||
+  ruby_19 { File.open("foo.jpg", "rb:BINARY") }
+
+----------------------------------------------------------------------------
+
+To simplify things, we put together a simple `File.read_binary` method that
+worked on both Ruby 1.8 and 1.9.  You can see this is nothing particularly
+exciting or surprising:
+
+----------------------------------------------------------------------------
+
+if RUBY_VERSION < "1.9"
+
+  class File  
+    def self.read_binary(file) 
+      File.open(file,"rb") { |f| f.read } 
+    end
+  end
+
+else
+
+  class File  
+    def self.read_binary(file) 
+      File.open(file,"rb:BINARY") { |f| f.read } 
+    end
+  end  
+
+end 
+  
+----------------------------------------------------------------------------
+
+This cleaned up the rest of our code greatly, and reduced the number of
+version checks significantly.  Of course, when `File.binread()` came along in
+Ruby 1.9.1, we went and used the techniques discussed earlier to back-port it
+to 1.8.6, but previous to that, this represented a nice way to to attack the 
+same problem in two different ways.
+
+Now that we've discussed all the relevant techniques, I can now show you
+what prawn/compatibility.rb looks like.  This file allows Prawn to run on
+both major versions of Ruby without any issues, and as you can see, is quite
+compact:
+
+----------------------------------------------------------------------------
+
+class String  #:nodoc:
+  unless "".respond_to?(:lines)
+    alias_method :lines, :to_a
+  end
+end
+
+unless File.respond_to?(:binread)
+  def File.binread(file) 
+    File.open(file,"rb") { |f| f.read } 
+  end
+end
+
+if RUBY_VERSION < "1.9"
+  
+  def ruby_18 
+    yield
+  end
+  
+  def ruby_19
+    false
+  end
+     
+else  
+ 
+  def ruby_18 
+    false  
+  end
+  
+  def ruby_19 
+    yield
+  end 
+  
+end 
+
+----------------------------------------------------------------------------
+
+This code leaves Ruby 1.9.1 virtually untouched, and only adds a couple of 
+simple features to Ruby 1.8.6.  These small modifications enable Prawn to have 
+cross-compatibility between versions of Ruby without polluting its
+codebase with copious version checks and workarounds.  Of course, there are
+a few areas that needed extra attention, and we'll talk sorts of issues to
+look out for in just a moment, but for the most part, this little 
+compatibility file gets the job done.
+
+Even if someone produced a Ruby 1.8 / 1.9 compatibility library that you 
+could include into your projects, it might still be advisable to copy only
+what you need from it.  The core philosophy here is that we want to do
+as much as we can to let each respective version of Ruby be what it is,
+to avoid confusing and painful debugging sessions.  By taking a minimalist
+approach and making it as easy as possible to locate your platform specific
+changes, we can help make things run more smoothly.
+
+Before we move on to some more specific details on particular 
+incompatibilities and how to work around them, let's recap the key points
+of this section:
+
+  * Try to support both Ruby 1.8 and 1.9 from the ground up.  However, be
+    sure to write your code against Ruby 1.9 first and then backport to 1.8
+    if you want prevent yourself from writing too much legacy code.
+    
+  * Before writing any version specific code or modifying core Ruby, attempt
+    to find a way to write code that runs natively on both Ruby 1.8 and 1.9.
+    Even if the solution turns out to be less beautiful than usual, its 
+    better to have code that works without introducing redundant 
+    implementations or modifications to core Ruby.
+    
+  * For features that don't have a straightforward solution that works on
+    both versions, consider back-porting the necessary functionality to
+    Ruby 1.8 by adding new methods to existing core classes.
+    
+  * If a feature is too complicated to backport or involves separate 
+    procedures across versions, consider adding a helper method that behaves
+    the same on both versions.
+    
+  * If you need to inline version checks, consider using the ruby_18 and
+    ruby_19 blocks shown in this chapter.  These centralize your version 
+    checking logic and provide room for refactoring and future extension.
+    
+With these thoughts in mind, let's talk about some incompatibilities you just 
+can't work around, and how to avoid them.
+
+=== Non-portable features in Ruby 1.9 ===
+
+There are some features in Ruby 1.9 that you simply cannot backport to 1.8
+without modifying the interpreter itself.  Here we'll talk about just a few 
+of the more obvious ones, to serve as a reminder of what to avoid if you plan
+to have your code run on both versions of Ruby.   In no particular order,
+here's a fun list of things that'll cause a backport to grind to a halt if
+you're not careful.
+
+==== Pseudo-keyword Hash Syntax ====
+
+Ruby 1.9 adds a cool feature that lets you write things like:
+
+...........................................................................
+
+foo(a: 1, b: 2)
+
+...........................................................................
+  
+But on Ruby 1.8, we're stuck using the old key => value syntax:
+
+...........................................................................
+
+foo(:a => 1, :b => 2)
+
+...........................................................................
+  
+==== Multi-splat arguments ====
+
+Ruby 1.9.1 offers a downright insane amount of ways to process arguments to
+methods.  But even the more simple ones, such as multiple splats in an
+argument list, are not backwards compatible.  Here's an example of something
+you can do on Ruby 1.9 that you can't on Ruby 1.8, which is something to be
+avoided in backwards compatible code:
+
+...........................................................................
+
+def add(a,b,c,d,e)
+  a + b + c + d + e
+end
+
+add(*[1,2], 3, *[4,5]) #=> 15
+
+...........................................................................
+
+The closest thing we can get to this on Ruby 1.8 would be something like this:
+ 
+...........................................................................
+
+add(*[[1,2], 3, [4,5]].flatten) #=> 15
+
+...........................................................................
+
+Of course, this isn't nearly as appealing.  It doesn't even handle the same edge
+cases that Ruby 1.9 does, as this would not work with any array arguments that
+are meant to be kept as an array.  So it's best to just not rely on this kind of
+interface in code that needs to run on both 1.8 and 1.9.
+  
+==== Block-local variables ====
+
+On Ruby 1.9, block variables will shadow outer local variables, resulting
+in the following behaviour:
+
+...........................................................................
+
+>> a = 1
+=> 1
+>> (1..10).each { |a| a }
+=> 1..10
+>> a 
+=> 1
+
+...........................................................................
+
+This is not the case on Ruby 1.8, where the variable will be modified even
+if not explicitly set:
+
+...........................................................................
+
+>> a = 1
+=> 1
+>> (1..10).each { |a| a }
+=> 1..10
+>> a
+=> 10
+
+...........................................................................
+
+This can be the source of a lot of subtle errors, so if you want to be safe
+on Ruby 1.8, be sure to use different names for your block-local variables
+so as to avoid accidentally overwriting outer local variables.
+
+==== Block Arguments ====
+
+In Ruby 1.9, blocks can accept block arguments, which is most commonly seen
+in define_method.
+
+...........................................................................
+
+define_method(:answer) { |&b| b.call(42) }
+
+...........................................................................
+
+However, this won't work on Ruby 1.8 without some very ugly workarounds, so
+it might be best to rethink things and see if you can do them in a different
+way if you've been relying on this functionality.
+
+==== New Proc Syntax ====
+
+Both the stabby `Proc` and the `.()` call are new in 1.9, and aren't parseable by
+the Ruby 1.8 interpreter.  This means that calls like this need to go:
+
+...........................................................................
+
+>> ->(a) { a*3 }.(4)
+=> 12
+
+...........................................................................
+
+Instead, use the trusty lambda keyword and `Proc#call` or `Proc#[]`
+
+...........................................................................
+
+  >> lambda { |a| a*3 }[4]
+  => 12
+
+...........................................................................
+
+==== Oniguruma ====
+
+Although it is possible to build the Oniguruma regular expression engine into 
+Ruby 1.8, it is not distributed by default, and thus should not be used in 
+backwards compatible code.  This means that if you're using named groups,
+you'll need to ditch them.  The following code is using named groups:
+
+...........................................................................
+
+>> "Gregory Brown".match(/(?<first_name>\w+) (?<last_name>\w+)/)
+=> #<MatchData "Gregory Brown" first_name:"Gregory" last_name:"Brown">
+
+...........................................................................
+
+We'd need to rewrite this as:
+
+...........................................................................
+
+>> "Gregory Brown".match(/(\w+) (\w+)/)
+=> #<MatchData "Gregory Brown" 1:"Gregory" 2:"Brown">
+
+...........................................................................
+
+More advanced regular expressions, including those that make use of positive
+or negative look-behind, will need to be completely re-written so that they
+work on both Ruby 1.8's regular expression engine and Oniguruma.
+
+==== Most M17N Functionality ====
+
+Though it may go without saying, Ruby 1.8 is not particularly well suited for
+working with character encodings.  There are some workarounds for this, but 
+things like magic comments that tell what encoding a file is in, or String 
+objects that are aware of their current encoding are completely missing from Ruby 1.8.
+
+Although we could go on, I'll leave the rest of the incompatibilities for you
+to research.  Keeping an eye on the issues mentioned in this section will
+help you avoid some of the most common problems, and that might be enough to
+make things run smoothly for you, depending on your needs.
+
+So far we've focused on the things you can't work around, but there are lots
+of other issues that can be handled without too much effort, if you know how
+to approach them.  We'll take a look at a few of those now.
+
+=== Workarounds for common issues ===
+
+Although we have seen that some functionality is simply not portable between
+Ruby 1.8 and 1.9, there are many more issues in which Ruby 1.9 just does 
+things a little differently or more conveniently.  In these cases, we can
+develop suitable workarounds that allow our code to run on both versions of
+Ruby.  Let's take a look at a few of these issues and how we can deal with
+them.
+
+==== Using Enumerator ====
+
+In Ruby 1.9, you can get back an Enumerator for pretty much every method that
+iterates over a collection:
+
+...........................................................................
+
+>> [1,2,3,4].map.with_index { |e,i| e + i }
+=> [1, 3, 5, 7]
+
+...........................................................................
+
+In Ruby 1.8, Enumerator is part of the standard library instead of core, and
+isn't quite as feature packed.  However, we can still accomplish the same
+goals by being a bit more verbose:
+
+...........................................................................
+
+>> require "enumerator"
+=> true
+>> [1,2,3,4].enum_for(:each_with_index).map { |e,i| e + i }
+=> [1, 3, 5, 7]
+
+...........................................................................
+  
+Because Ruby 1.9's implementation of Enumerator is mostly backwards 
+compatible with Ruby 1.8, you can write your code in this legacy style
+without fear of breaking anything.
+
+==== String Iterators ====
+
+In Ruby 1.8, Strings are Enumerable, whereas in Ruby 1.9, they are not.
+Ruby 1.9 provides `String#lines`, `String#each_line`, `String#each_char`, 
+`String#each_byte`, all of which are not present in Ruby 1.8.
+
+The best bet here is to back-port the features you need to Ruby 1.8, and
+avoid treating a String as an Enumerable sequence of lines.  When you need
+that functionality, use String#lines followed by whatever enumerable method you
+need.
+
+The underlying point here is that it's better to stick with Ruby 1.9's
+functionality, because it'll be less likely to confuse others who might
+be reading your code.
+
+==== Character Operations ====
+
+In Ruby 1.9, Strings are generally character aware, which means that you can
+index into them and get back a single character, regardless of encoding:
+
+...........................................................................
+
+>> "Foo"[0]
+=> "F"
+
+...........................................................................
+
+This is not the case in Ruby 1.8.6, as you can see:
+
+...........................................................................
+
+>> "Foo"[0]
+=> 70
+
+...........................................................................
+
+If you need to do character aware operations on Ruby 1.8 and 1.9, you'll need
+to process things using a regex trick that gets you back an array of 
+characters.  After setting `$KCODE="U"` footnote:[This is necessary to work with
+UTF-8 on Ruby 1.8, but has no effect on 1.9], you'll need to do things like 
+substitute calls to `String#reverse` with the following:
+
+...........................................................................
+
+>> "résumé".scan(/./m).reverse.join
+=> "émusér"
+
+...........................................................................
+  
+Or as another example, you'll replace `String#chop` with this:
+
+...........................................................................
+
+>> r = "résumé".scan(/./m); r.pop; r.join
+=> "résum"
+
+...........................................................................
+
+Depending on how many of these manipulations you'll need to do, you might
+consider breaking out the Ruby 1.8 compatible code from the clearer Ruby 1.9
+code using the techniques discussed earlier in this chapter.  However, the
+thing to remember is that anywhere you've been enjoying Ruby 1.9's M17N 
+support, you'll need to do some rework.  The good news is that many of
+the techniques used on Ruby 1.8 still work on Ruby 1.9, but the bad news is
+that they can appear quite convoluted to those who have gotten used to the
+way things work in newer versions of Ruby.
+
+==== Encoding Conversions ====
+
+Ruby 1.9 has built in support for transcoding between various character
+encodings, whereas Ruby 1.8 is more limited.  However, both versions support
+Iconv.  If you know exactly what formats you want to translate between, you can
+simply replace your string.encode("ISO-8859-1") calls with something like
+this:
+
+ Iconv.conv("ISO-8859-1", "UTF-8", string)
+ 
+However, if you want to let Ruby 1.9 stay smart about its transcoding while
+still providing backwards compatibility, you will just need to write code
+for each version.  Here's an example of how this was done in an early version of
+Prawn:
+
+----------------------------------------------------------------------------
+
+  if "".respond_to?(:encode!)
+    def normalize_builtin_encoding(text)
+      text.encode!("ISO-8859-1")
+    end
+  else
+    require 'iconv'
+    def normalize_builtin_encoding(text)
+      text.replace Iconv.conv('ISO-8859-1//TRANSLIT', 'utf-8', text)
+    end
+  end
+  
+----------------------------------------------------------------------------
+
+Although there is duplication of effort here, the Ruby 1.9 based code does
+not assume UTF-8 based input, whereas the Ruby 1.8 based code is forced to
+make this assumption.  In cases where you want to support many encodings on
+Ruby 1.9, this may be the right way to go.
+
+Although we've just scratched the surface, this handful of tricks should
+cover a handful of the most common issues you'll encounter.  For everything
+else, consult your favorite language reference.
+
+=== Conclusions ===
+
+Depending on the nature of your project, getting things running on both Ruby
+1.8 and 1.9 can be either trivial or a major undertaking.  The more string
+processing you are doing, and the greater your need for multi-lingualization
+support, the more complicated a backwards compatible port of your software to
+Ruby 1.8 will be.  Additionally, if you've been digging into some of the fancy
+new features that ship with Ruby 1.9, you might find yourself doing some
+serious rewriting when the time comes to support older versions of Ruby.
+
+In light of all this, it's best to start (if you can afford to) by supporting
+both versions from the ground up.  By writing your code in a fairly backwards
+compatible subset of Ruby 1.9, you'll minimize the amount of duplicated 
+effort that is needed to support both versions.  If you keep your 
+compatibility hacks well organized and centralized, it'll be easier to spot
+any problems that might crop up.
+
+If you find yourself writing the same workaround several times, think about
+extending the core with some helpers to make your code clearer.  However,
+keep in mind that when you redistribute code, you have a responsibility not
+to break existing language features and that you should strive to avoid
+conflicts with third party libraries.
+
+However, don't let all these caveats turn you away.  Writing code that runs
+on both Ruby 1.8 and 1.9 is about the most friendly thing you can do in terms
+of open source Ruby, and will also be beneficial in other scenarios.  Start
+by reviewing the guidelines in this chapter, then remember to keep testing 
+your code on both versions of Ruby.  So long as you keep things well 
+organized and try as best as you can to minimize version specific code, you
+should be able to get your project working on both Ruby 1.8 and 1.9 without
+conflicts.  This gives you a great degree of flexibility which is often worth
+the extra effort.
