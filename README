@@ -27,6 +27,12 @@ book.  Right now it's a bit limited, just one giant docbook file and some figs.
 We may be able to break it down by chapter later, but we may not necessarily
 need it.
 
+If you are wondering about code samples, they are currently at:
+http://github.com/sandal/rbp
+
+I plan to merge them here sooner or later, and extract more from the original
+manuscript.  I sort of got lazy there.
+
 == Contributing / Using Content
 
 Right now, I need to go through the painstaking process of merging copyeditor
